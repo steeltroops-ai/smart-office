@@ -20,18 +20,18 @@
 
 ## 1. Problem Space
 
-### What We're Building
+### What I'm Building
 
-Browser-based document editor that works on a local network. No cloud, no internet, no external dependencies.
+A browser-based document editor that works on a local network. No cloud, no internet, no external dependencies. Think Google Docs but running on your own server.
 
-**Core Requirements:**
+**What it needs to do:**
 - Rich text editing
 - Voice dictation (offline)
 - Document templates
 - Multi-user LAN access
 - PDF export
 
-**The Hard Part:** Voice input without internet connectivity. Most speech-to-text requires cloud APIs.
+**The tricky part:** Voice input without internet. Most speech-to-text needs cloud APIs, and that's a deal-breaker here.
 
 ---
 
@@ -126,7 +126,7 @@ graph TB
     Note2[All Processing Local]
 ```
 
-**Why this matters:** Everything routes through one server. Simple to deploy, simple to secure, simple to backup.
+**Why I like this setup:** Everything goes through one server. Easy to deploy, easy to secure, easy to backup. No distributed systems headaches.
 
 ---
 
@@ -168,7 +168,7 @@ graph TB
 | Ecosystem | Growing | Massive | Growing | **Node.js** |
 | TypeScript | Native | Build Step | Native | **Bun/Deno** |
 
-**Conclusion:** Use Bun for POC (faster iteration), plan Node.js migration for production (stability).
+**My call:** Bun for the POC (faster to iterate), but I'd probably switch to Node.js for production. Stability matters more than speed once you're in prod.
 
 ### Backend Language Analysis
 
@@ -189,12 +189,12 @@ graph LR
     GO --> GOPro[High concurrency<br/>Low latency<br/>Single binary]
 ```
 
-**The Play:**
+**Here's how I'd split it:**
 - TypeScript for 90% of the system
-- Python only for Whisper (if we add it)
+- Python only for Whisper (if we add it later)
 - Go only if we hit performance walls (unlikely for v1-v3)
 
-**Why not Rust?** Too slow to iterate. This is a document editor, not a database engine.
+**Why not Rust?** Too slow to iterate. We're building a document editor, not a database engine. Developer velocity matters more here.
 
 ### Editor Architecture
 
@@ -221,11 +221,11 @@ graph TB
     style TScore fill:#4caf50,color:#fff
 ```
 
-**TipTap wins because:**
-- JSON storage (not Delta format strings)
-- Built on ProseMirror (proven core)
-- Headless design (full UI control)
-- Active development
+**Why I picked TipTap:**
+- JSON storage (not Delta format strings like Quill)
+- Built on ProseMirror (proven core, battle-tested)
+- Headless design (I control the UI completely)
+- Active development (not abandoned like Draft.js)
 
 **Setup is trivial:**
 ```javascript
@@ -244,7 +244,7 @@ That's it. No webpack config, no custom renderers, no fighting default styles.
 
 ### 4.1 Voice Input Strategy
 
-This is the technically interesting part. Speech-to-text without cloud access.
+This was the interesting constraint. Getting speech-to-text working without any cloud access.
 
 ```mermaid
 graph TB
@@ -297,7 +297,7 @@ sequenceDiagram
 | Latency | Real-time (< 100ms) |
 | Cost | Free |
 
-**This is the v1 choice.** Fast to implement, works for 80% of users, zero infrastructure.
+**This is what I went with for v1.** Quick to build, works for 80% of users (Chrome/Edge), zero infrastructure headache.
 
 #### Option 2: Whisper.cpp
 
@@ -340,13 +340,13 @@ graph LR
     Critical --> small[small.en<br/>466MB<br/>5s latency]
 ```
 
-**When to use Whisper:**
+**When I'd reach for Whisper instead:**
 - Firefox users need offline voice
-- Accuracy matters (medical terminology, legal terms)
-- Custom vocabulary required
-- Have server resources (4+ CPU cores)
+- Accuracy actually matters (medical terminology, legal stuff)
+- Need custom vocabulary
+- Server has decent resources (4+ CPU cores)
 
-**Implementation complexity:** About 1 week vs 1 day for Web Speech API.
+**The cost:** About a week of work vs a day for Web Speech API.
 
 ### 4.2 Template System
 
@@ -401,11 +401,11 @@ graph TB
 }
 ```
 
-**Why JSON over HTML templates?**
-- Matches TipTap's internal format (no conversion)
-- Easy to version control
-- Can validate structure
-- Can programmatically manipulate
+**Why JSON instead of HTML templates?**
+- Matches TipTap's internal format directly (zero conversion)
+- Easy to version control (it's just text)
+- Can validate structure programmatically
+- Can manipulate in code when needed
 
 ### 4.3 Document Storage Evolution
 
@@ -443,10 +443,10 @@ graph TB
     end
 ```
 
-**Why this progression?**
-- Start simple, add complexity only when needed
-- Each migration is straightforward (same schema)
-- Can revert if needed (SQLite is just a file)
+**Why I like this progression:**
+- Start simple, add complexity only when you actually need it
+- Each migration is straightforward (same schema, different backend)
+- Can always roll back (SQLite is just a file, worst case copy it)
 
 **Storage Comparison:**
 
@@ -516,7 +516,7 @@ graph TB
     C --> C4[Setup: npm package]
 ```
 
-**Decision:** jsPDF for v1 (simple), Puppeteer for v2 if quality complaints arise.
+**My pick:** jsPDF for v1 (it's simple and good enough). If people complain about PDF quality later, I'd add Puppeteer.
 
 ---
 
@@ -590,12 +590,12 @@ erDiagram
     }
 ```
 
-**Why this schema?**
-- Normalized but not over-normalized
-- JSON columns for flexible content (TipTap structure)
+**Why I designed the schema this way:**
+- Normalized but not over-normalized (practical, not academic)
+- JSON columns for flexible content (TipTap structure doesn't fit rigid columns)
 - Foreign keys for data integrity
-- Timestamp columns for audit trail
-- Status fields for workflow state
+- Timestamps everywhere for audit trail
+- Status fields to track workflow state
 
 ### Document Lock Mechanism
 
@@ -642,11 +642,11 @@ graph TB
     Deny --> Notify[Notify Lock Owner]
 ```
 
-**Why pessimistic locking?**
-- Simple to implement (vs CRDTs)
-- Good enough for office use cases
-- One user editing at a time is standard for formal documents
-- Can add optimistic/collaborative later if needed
+**Why I'd use pessimistic locking (not real-time collab):**
+- Simple to implement (CRDTs are complex)
+- Works well for how offices actually operate
+- One person editing at a time is normal for formal documents
+- Can always add collaborative editing later if they really need it
 
 ---
 
@@ -730,10 +730,10 @@ graph TB
     S1 & S2 & S3 --> NFS
 ```
 
-**Why this architecture?**
-- Horizontal scaling (add more app servers)
-- Read replicas for scaling reads
-- Redis for session and document caching
+**Why I'd go with this setup at scale:**
+- Horizontal scaling (just add more app servers)
+- Read replicas handle read-heavy workloads
+- Redis for session management and document caching
 - NFS/S3 for shared file storage (exports, uploads)
 
 ### Capacity Planning
@@ -870,7 +870,7 @@ graph TB
     D5B --> D5C[Mitigation: Puppeteer if Needed]
 ```
 
-### What We're NOT Building (v1)
+### What I'm NOT Building (v1)
 
 ```mermaid
 graph TB
@@ -918,7 +918,7 @@ graph TB
 
 ### AI Integration Strategy (Future)
 
-The requirement asks: "How would you add AI later without breaking determinism?"
+The requirement asked: "How would you add AI later without breaking determinism?" Here's my thinking:
 
 ```mermaid
 graph TB
@@ -942,7 +942,7 @@ graph TB
     UserApproval --> Output[Deterministic Output]
 ```
 
-**Key Principle:** AI suggests, user decides. Never auto-apply AI changes.
+**The key principle:** AI suggests, user decides. Never auto-apply AI changes to formal documents.
 
 **Example: Template Suggestion**
 
@@ -978,7 +978,7 @@ graph LR
     Sort --> Present[Present to User]
 ```
 
-Same input always produces same scores. User makes the final choice.
+Same input always produces same scores. The user makes the final choice. That's how you keep it deterministic.
 
 ---
 
@@ -1028,23 +1028,23 @@ graph TB
 
 ## Conclusion
 
-**What This Design Achieves:**
+**What this design gets you:**
 - Offline-first (zero internet dependency)
-- Simple deployment (single binary)
-- Clear scaling path (JSON → SQLite → PostgreSQL)
+- Simple deployment (single server, no distributed headaches)
+- Clear scaling path (JSON -> SQLite -> PostgreSQL)
 - Fast iteration (Bun + TypeScript)
-- Production-ready architecture
+- Production-ready when you need it
 
-**Development Timeline (Estimated):**
+**Rough timeline (my estimate):**
 - POC: 24-48 hours (core editing, save/load, templates)
-- Production v1: 2-3 weeks (auth, locking, error handling)
+- Production v1: 2-3 weeks (auth, locking, proper error handling)
 - Multi-user v2: 1-2 months (database migration, WebSocket)
 - Enterprise v3: 3-4 months (approvals, audit logs, integrations)
 
-**Performance Targets (Based on POC Testing):**
+**Performance I'm seeing in the POC:**
 - Server startup: ~100ms (Bun cold start)
 - Document load: < 200ms (varies by size)
 - Concurrent users: 10-50 (single server), 500+ (with load balancer)
 - Storage capacity: 500 docs (JSON files), 50K+ (PostgreSQL)
 
-Built for rapid iteration with a clear path to production scale.
+Simple for now, with a clear path to scale when needed.

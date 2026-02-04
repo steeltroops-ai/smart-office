@@ -3,7 +3,7 @@
 
 ## Document Purpose
 
-This document translates the system architecture from `01-design-and-approach.md` into an actionable implementation plan. It defines exactly what the POC demonstrates, the project structure, and how components connect.
+This takes the architecture from `01-design-and-approach.md` and turns it into an actual implementation plan. What exactly the POC shows, how the project is laid out, and how the pieces connect.
 
 **Reference:** `PROBLEM_STATEMENT.md` - Option A (Full-Stack POC)
 
@@ -11,12 +11,12 @@ This document translates the system architecture from `01-design-and-approach.md
 
 ## 1. POC Scope (Based on Requirements)
 
-### 1.1 What We Are Building
+### 1.1 What I'm Building
 
 A minimal, working document editor that:
 1. Runs a local Bun server
 2. Serves a browser-based rich text editor
-3. Allows creating, editing, saving, and loading documents
+3. Lets you create, edit, save, and load documents
 
 ### 1.2 Feature Checklist
 
@@ -39,7 +39,7 @@ flowchart LR
     style BONUS fill:#fef3c7,stroke:#d97706
 ```
 
-### 1.3 What We Are NOT Building
+### 1.3 What I'm NOT Building
 
 | Excluded Feature | Reason |
 |------------------|--------|
@@ -86,7 +86,7 @@ flowchart TB
 | **Vanilla CSS** | No framework dependency, full control, simple for POC |
 | **JSON Files** | Human-readable, no database setup, easy debugging |
 
-**Note:** We use Vanilla CSS, not Tailwind, to keep dependencies minimal per the offline-first philosophy.
+**Note:** I'm using Vanilla CSS, not Tailwind, to keep dependencies minimal. Fits the offline-first philosophy better.
 
 ---
 
@@ -132,12 +132,12 @@ smart-office/
 |-- README.md
 ```
 
-### 3.2 Structure Rationale
+### 3.2 Why I Structured It This Way
 
-- **Flat for POC:** Minimal nesting, easy to navigate
-- **src/ separation:** Keeps source separate from config/data
-- **data/ outside src/:** Runtime data is not source code
-- **templates/ at root:** Easy to find and edit
+- **Flat for POC:** Minimal nesting, easy to find stuff
+- **src/ separation:** Keeps source code separate from config and data
+- **data/ outside src/:** Runtime data doesn't belong in source
+- **templates/ at root:** Easy to find and edit by hand
 
 ---
 
@@ -475,7 +475,7 @@ export const storage = {
 
 ### 7.1 Implementation Strategy
 
-Use browser's Web Speech API for the POC (aligns with 01-design-and-approach.md):
+I'm using the browser's Web Speech API for the POC (same reasoning as in 01-design-and-approach.md):
 
 ```mermaid
 flowchart TB
@@ -577,7 +577,7 @@ flowchart TB
 
 ---
 
-## 9. What Would Improve With More Time
+## 9. What I'd Improve With More Time
 
 ### 9.1 Priority Improvements
 
@@ -591,7 +591,7 @@ flowchart TB
 
 ### 9.2 Scaling Path
 
-Aligned with `01-design-and-approach.md`:
+Follows the same progression from `01-design-and-approach.md`:
 
 ```
 v1 (POC): JSON Files → v2: SQLite → v3: PostgreSQL
