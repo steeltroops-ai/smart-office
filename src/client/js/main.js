@@ -44888,7 +44888,8 @@ var state = {
   isSaving: false,
   isLoading: false,
   editor: null,
-  voiceInput: null
+  voiceInput: null,
+  autoSaveTimer: null
 };
 var elements2 = {
   docTitle: document.getElementById("doc-title"),
@@ -44945,6 +44946,13 @@ function markDirty() {
     state.isDirty = true;
     updateStatus("Unsaved changes");
     updateDeleteButton();
+  }
+  if (state.currentDocId) {
+    if (state.autoSaveTimer)
+      clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = setTimeout(() => {
+      saveDocument(true);
+    }, 2000);
   }
 }
 function updateDeleteButton() {
@@ -45118,20 +45126,33 @@ async function loadTemplate(templateId) {
     setLoading(false);
   }
 }
-async function saveDocument() {
+async function saveDocument(isAutoSave = false) {
   if (state.isSaving || state.isLoading)
     return;
   state.isSaving = true;
-  setLoading(true);
-  updateStatus("Saving...", "saving");
-  const title = elements2.docTitle.value.trim() || "Untitled Document";
+  if (!isAutoSave)
+    setLoading(true);
+  updateStatus(isAutoSave ? "Auto-saving..." : "Saving...", "saving");
+  const title = elements2.docTitle.value.trim();
   const content = state.editor?.getJSON() || { type: "doc", content: [] };
+  const isContentEmpty = state.editor?.getCharacterCount() === 0;
+  if (!state.currentDocId && (!title || title === "Untitled Document") && isContentEmpty) {
+    updateStatus("Add title or content to save", "error");
+    state.isSaving = false;
+    if (!isAutoSave)
+      setLoading(false);
+    return;
+  }
+  const finalTitle = title || "Untitled Document";
   try {
     let doc3;
     if (state.currentDocId) {
-      doc3 = await documentApi.update(state.currentDocId, { title, content });
+      doc3 = await documentApi.update(state.currentDocId, {
+        title: finalTitle,
+        content
+      });
     } else {
-      doc3 = await documentApi.create({ title, content });
+      doc3 = await documentApi.create({ title: finalTitle, content });
     }
     if (doc3) {
       state.currentDocId = doc3.id;
@@ -45147,7 +45168,8 @@ async function saveDocument() {
     updateStatus("Save failed", "error");
   } finally {
     state.isSaving = false;
-    setLoading(false);
+    if (!isAutoSave)
+      setLoading(false);
   }
 }
 async function createNewDocument() {
@@ -45204,6 +45226,16 @@ async function deleteCurrentDocument() {
 async function exportPdf() {
   if (!state.editor)
     return;
+  if (state.editor.getCharacterCount() === 0) {
+    alert("Cannot export an empty document. Please add some text first.");
+    return;
+  }
+  if (state.isDirty) {
+    const confirm = window.confirm("You have unsaved changes. Save before exporting to ensure latest version?");
+    if (confirm) {
+      await saveDocument();
+    }
+  }
   setLoading(true);
   updateStatus("Generating PDF...", "saving");
   try {
@@ -45214,26 +45246,65 @@ async function exportPdf() {
       format: "a4"
     });
     const title = elements2.docTitle.value || "Untitled Document";
-    const text = state.editor.getText();
-    doc3.setFontSize(18);
-    doc3.setFont("helvetica", "bold");
-    doc3.text(title, 20, 25);
-    doc3.setFontSize(12);
-    doc3.setFont("helvetica", "normal");
+    const content = state.editor.getJSON();
+    let y3 = 20;
     const pageWidth = doc3.internal.pageSize.getWidth();
-    const maxWidth = pageWidth - 40;
-    const lines = doc3.splitTextToSize(text, maxWidth);
-    let y3 = 40;
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
     const pageHeight = doc3.internal.pageSize.getHeight();
-    const lineHeight = 7;
-    for (const line of lines) {
-      if (y3 > pageHeight - 20) {
+    const checkPageBreak = (heightNeeded) => {
+      if (y3 + heightNeeded > pageHeight - margin) {
         doc3.addPage();
-        y3 = 20;
+        y3 = margin;
       }
-      doc3.text(line, 20, y3);
-      y3 += lineHeight;
-    }
+    };
+    doc3.setFont("helvetica", "bold");
+    doc3.setFontSize(24);
+    doc3.text(title, margin, y3);
+    y3 += 15;
+    const nodes = content.content || [];
+    doc3.setFont("helvetica", "normal");
+    nodes.forEach((node2) => {
+      let fontSize = 12;
+      let fontStyle = "normal";
+      let lineHeight = 7;
+      let spacingAfter = 7;
+      if (node2.type === "heading") {
+        fontStyle = "bold";
+        if (node2.attrs?.level === 1) {
+          fontSize = 18;
+          lineHeight = 10;
+          spacingAfter = 10;
+        } else if (node2.attrs?.level === 2) {
+          fontSize = 16;
+          lineHeight = 9;
+          spacingAfter = 8;
+        } else {
+          fontSize = 14;
+          lineHeight = 8;
+          spacingAfter = 8;
+        }
+      } else if (node2.type === "paragraph") {
+        fontSize = 12;
+        fontStyle = "normal";
+        lineHeight = 6;
+        spacingAfter = 6;
+      }
+      doc3.setFont("helvetica", fontStyle);
+      doc3.setFontSize(fontSize);
+      let text = "";
+      if (node2.content) {
+        text = node2.content.map((c4) => c4.text).join("");
+      }
+      if (!text && node2.type === "paragraph") {
+        y3 += lineHeight;
+        return;
+      }
+      const lines = doc3.splitTextToSize(text, maxWidth);
+      checkPageBreak(lines.length * lineHeight + spacingAfter);
+      doc3.text(lines, margin, y3);
+      y3 += lines.length * lineHeight + spacingAfter;
+    });
     const filename = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
     doc3.save(filename);
     updateStatus("PDF exported", "saved");
@@ -45414,7 +45485,7 @@ function toggleVoiceInput() {
   }
 }
 function setupEventHandlers() {
-  elements2.btnSave.addEventListener("click", saveDocument);
+  elements2.btnSave.addEventListener("click", () => saveDocument(false));
   elements2.btnNew.addEventListener("click", createNewDocument);
   elements2.btnExport.addEventListener("click", exportPdf);
   elements2.editorEl.addEventListener("click", (e2) => {

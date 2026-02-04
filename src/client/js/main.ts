@@ -19,6 +19,7 @@ interface AppState {
   isLoading: boolean;
   editor: DocumentEditor | null;
   voiceInput: VoiceInput | null;
+  autoSaveTimer: any | null;
 }
 
 const state: AppState = {
@@ -28,6 +29,7 @@ const state: AppState = {
   isLoading: false,
   editor: null,
   voiceInput: null,
+  autoSaveTimer: null,
 };
 
 // ============ DOM Elements ============
@@ -94,6 +96,17 @@ function markDirty(): void {
     state.isDirty = true;
     updateStatus("Unsaved changes");
     updateDeleteButton();
+  }
+
+  // Auto-save logic
+  // Only auto-save if we have a valid Doc ID (don't create new files automatically)
+  if (state.currentDocId) {
+    if (state.autoSaveTimer) clearTimeout(state.autoSaveTimer);
+
+    // Debounce save for 2 seconds
+    state.autoSaveTimer = setTimeout(() => {
+      saveDocument(true); // true = silent/auto save
+    }, 2000);
   }
 }
 
@@ -316,22 +329,40 @@ async function loadTemplate(templateId: string): Promise<void> {
   }
 }
 
-async function saveDocument(): Promise<void> {
+async function saveDocument(isAutoSave = false): Promise<void> {
   if (state.isSaving || state.isLoading) return;
 
   state.isSaving = true;
-  setLoading(true);
-  updateStatus("Saving...", "saving");
+  if (!isAutoSave) setLoading(true); // Don't block UI for auto-save
+  updateStatus(isAutoSave ? "Auto-saving..." : "Saving...", "saving");
 
-  const title = elements.docTitle.value.trim() || "Untitled Document";
+  const title = elements.docTitle.value.trim();
   const content = state.editor?.getJSON() || { type: "doc", content: [] };
+  const isContentEmpty = state.editor?.getCharacterCount() === 0;
+
+  // Validation: Don't create new documents that are completely empty
+  if (
+    !state.currentDocId &&
+    (!title || title === "Untitled Document") &&
+    isContentEmpty
+  ) {
+    updateStatus("Add title or content to save", "error");
+    state.isSaving = false;
+    if (!isAutoSave) setLoading(false);
+    return;
+  }
+
+  const finalTitle = title || "Untitled Document";
 
   try {
     let doc;
     if (state.currentDocId) {
-      doc = await documentApi.update(state.currentDocId, { title, content });
+      doc = await documentApi.update(state.currentDocId, {
+        title: finalTitle,
+        content,
+      });
     } else {
-      doc = await documentApi.create({ title, content });
+      doc = await documentApi.create({ title: finalTitle, content });
     }
 
     if (doc) {
@@ -348,7 +379,7 @@ async function saveDocument(): Promise<void> {
     updateStatus("Save failed", "error");
   } finally {
     state.isSaving = false;
-    setLoading(false);
+    if (!isAutoSave) setLoading(false);
   }
 }
 
@@ -421,11 +452,26 @@ async function deleteCurrentDocument(): Promise<void> {
 async function exportPdf(): Promise<void> {
   if (!state.editor) return;
 
+  // 1. Validation: Check if empty
+  if (state.editor.getCharacterCount() === 0) {
+    alert("Cannot export an empty document. Please add some text first.");
+    return;
+  }
+
+  // 2. Validation: Ensure saved (optional, but good practice per user request)
+  if (state.isDirty) {
+    const confirm = window.confirm(
+      "You have unsaved changes. Save before exporting to ensure latest version?",
+    );
+    if (confirm) {
+      await saveDocument();
+    }
+  }
+
   setLoading(true);
   updateStatus("Generating PDF...", "saving");
 
   try {
-    // Dynamic import jsPDF
     const { jsPDF } = await import("jspdf");
 
     const doc = new jsPDF({
@@ -435,34 +481,91 @@ async function exportPdf(): Promise<void> {
     });
 
     const title = elements.docTitle.value || "Untitled Document";
-    const text = state.editor.getText();
+    const content = state.editor.getJSON(); // Get structure, not just text
 
-    // Add title
-    doc.setFontSize(18);
+    // Document setup
+    let y = 20;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Helper to check page break
+    const checkPageBreak = (heightNeeded: number) => {
+      if (y + heightNeeded > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    // Render Title
     doc.setFont("helvetica", "bold");
-    doc.text(title, 20, 25);
+    doc.setFontSize(24);
+    doc.text(title, margin, y);
+    y += 15;
 
-    // Add content
-    doc.setFontSize(12);
+    // Render Content Nodes
+    // Note: This is a simplified renderer for POC.
+    // It handles Headings and Paragraphs.
+
+    // cast content to any to access content array
+    const nodes = (content as any).content || [];
+
     doc.setFont("helvetica", "normal");
 
-    // Split text into lines that fit the page
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const maxWidth = pageWidth - 40; // 20mm margins
-    const lines = doc.splitTextToSize(text, maxWidth);
+    nodes.forEach((node: any) => {
+      let fontSize = 12;
+      let fontStyle = "normal";
+      let lineHeight = 7;
+      let spacingAfter = 7;
 
-    let y = 40;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const lineHeight = 7;
-
-    for (const line of lines) {
-      if (y > pageHeight - 20) {
-        doc.addPage();
-        y = 20;
+      // Detect styles based on node type
+      if (node.type === "heading") {
+        fontStyle = "bold";
+        if (node.attrs?.level === 1) {
+          fontSize = 18;
+          lineHeight = 10;
+          spacingAfter = 10;
+        } else if (node.attrs?.level === 2) {
+          fontSize = 16;
+          lineHeight = 9;
+          spacingAfter = 8;
+        } else {
+          fontSize = 14;
+          lineHeight = 8;
+          spacingAfter = 8;
+        }
+      } else if (node.type === "paragraph") {
+        fontSize = 12;
+        fontStyle = "normal";
+        lineHeight = 6;
+        spacingAfter = 6;
       }
-      doc.text(line, 20, y);
-      y += lineHeight;
-    }
+
+      // Set styles
+      doc.setFont("helvetica", fontStyle);
+      doc.setFontSize(fontSize);
+
+      // Get text content
+      let text = "";
+      if (node.content) {
+        text = node.content.map((c: any) => c.text).join("");
+      }
+
+      // Skip empty paragraphs unless explicitly needed
+      if (!text && node.type === "paragraph") {
+        y += lineHeight; // Small gap for empty line
+        return;
+      }
+
+      // Basic Word Wrap
+      const lines = doc.splitTextToSize(text, maxWidth);
+
+      checkPageBreak(lines.length * lineHeight + spacingAfter);
+
+      doc.text(lines, margin, y);
+      y += lines.length * lineHeight + spacingAfter;
+    });
 
     // Save the PDF
     const filename = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
@@ -665,7 +768,7 @@ function toggleVoiceInput(): void {
 
 function setupEventHandlers(): void {
   // Save button
-  elements.btnSave.addEventListener("click", saveDocument);
+  elements.btnSave.addEventListener("click", () => saveDocument(false));
 
   // New document button
   elements.btnNew.addEventListener("click", createNewDocument);
