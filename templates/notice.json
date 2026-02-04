@@ -1,0 +1,79 @@
+{
+  "id": "notice",
+  "name": "Office Notice",
+  "description": "General notice for announcements",
+  "category": "notices",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "NOTICE" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "Date: [Date]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "Ref. No.: [Reference Number]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Subject: [Notice Subject]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "This is to inform all concerned that [write notice content here]."
+          }
+        ]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "All employees/members are requested to take note of the above and act accordingly."
+          }
+        ]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Authority Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Designation]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Department/Office]" }]
+      }
+    ]
+  }
+}

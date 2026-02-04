@@ -1,0 +1,104 @@
+{
+  "id": "memo",
+  "name": "Office Memo",
+  "description": "Internal memorandum format",
+  "category": "memos",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "MEMORANDUM" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "TO: " },
+          { "type": "text", "text": "[Recipient Name/Department]" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "FROM: " },
+          { "type": "text", "text": "[Your Name/Department]" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "DATE: " },
+          { "type": "text", "text": "[Date]" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "marks": [{ "type": "bold" }],
+            "text": "SUBJECT: "
+          },
+          { "type": "text", "text": "[Subject of Memo]" }
+        ]
+      },
+      {
+        "type": "horizontalRule"
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Write memo content here...]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 3 },
+        "content": [{ "type": "text", "text": "Action Required:" }]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": "[Action item 1]" }]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": "[Action item 2]" }]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Please contact [Your Name] at [Extension/Email] for any queries."
+          }
+        ]
+      }
+    ]
+  }
+}

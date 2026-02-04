@@ -1,0 +1,14 @@
+{
+  "id": "blank",
+  "name": "Blank Document",
+  "description": "Start with a clean slate",
+  "category": "general",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph"
+      }
+    ]
+  }
+}

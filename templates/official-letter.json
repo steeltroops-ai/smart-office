@@ -1,0 +1,96 @@
+{
+  "id": "official-letter",
+  "name": "Official Letter",
+  "description": "Standard format for official correspondence",
+  "category": "letters",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Your Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Your Designation]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Department]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Date]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "To," }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Recipient Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Recipient Designation]" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Recipient Department]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 3 },
+        "content": [{ "type": "text", "text": "Subject: [Enter Subject]" }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Dear Sir/Madam," }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "text": "[Write your letter content here...]" }
+        ]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Thanking you," }]
+      },
+      {
+        "type": "paragraph"
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Yours faithfully," }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Your Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[Your Signature]" }]
+      }
+    ]
+  }
+}
