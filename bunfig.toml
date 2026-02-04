@@ -1,0 +1,5 @@
+[install]
+prefer-offline = true
+
+[run]
+bun = true

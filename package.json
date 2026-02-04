@@ -1,0 +1,31 @@
+{
+  "name": "smart-office",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build:client": "bun build ./src/client/js/main.ts --outdir=./src/client/js --target=browser",
+    "dev": "bun run build:client && bun run --watch src/server/index.ts",
+    "start": "bun run build:client && bun run src/server/index.ts",
+    "build": "bun build ./src/client/js/main.ts --outdir=./dist --target=browser --minify"
+  },
+  "dependencies": {
+    "@tiptap/core": "^2.2.0",
+    "@tiptap/extension-font-family": "^3.19.0",
+    "@tiptap/extension-font-size": "^3.0.0-next.3",
+    "@tiptap/extension-highlight": "^3.19.0",
+    "@tiptap/extension-placeholder": "^2.2.0",
+    "@tiptap/extension-subscript": "^3.19.0",
+    "@tiptap/extension-superscript": "^3.19.0",
+    "@tiptap/extension-text-align": "^3.19.0",
+    "@tiptap/extension-text-style": "^3.19.0",
+    "@tiptap/extension-underline": "^3.19.0",
+    "@tiptap/pm": "^2.2.0",
+    "@tiptap/starter-kit": "^2.2.0",
+    "hono": "^4.0.0",
+    "jspdf": "^2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/bun": "latest"
+  }
+}
