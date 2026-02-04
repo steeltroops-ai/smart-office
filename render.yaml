@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: smart-office
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8080
+    healthCheckPath: /api/health
+    disk:
+      name: smart-office-data
+      mountPath: /app/data
+      sizeGB: 1

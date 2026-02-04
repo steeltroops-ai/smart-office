@@ -102,6 +102,19 @@ For multi-device access, other machines on the network can use:
 http://<your-ip>:3000
 ```
 
+## Deploying to Render.com
+
+1. Push your code to GitHub
+2. Go to [render.com](https://render.com) and create an account
+3. Click **New** -> **Web Service**
+4. Connect your GitHub repository
+5. Render will auto-detect the `render.yaml` and configure everything
+6. Click **Deploy**
+
+The app will be live at `https://smart-office-XXXX.onrender.com`
+
+**Note**: Free tier may spin down after 15 min of inactivity. First request after idle takes ~30 seconds.
+
 ## License
 
 Built as a technical assessment.

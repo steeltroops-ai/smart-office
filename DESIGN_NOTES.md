@@ -265,8 +265,7 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 ---
 
-## How I'd Handle Multi-User (Bonus Question)
-
+## How I'd Handle Multi-User!?
 Government offices don't need Google Docs-style real-time collaboration. They want **locking**: one person edits, others wait.
 
 ```typescript
@@ -290,7 +289,7 @@ Lock expires after 30 minutes of inactivity. On `beforeunload`, release lock ear
 
 ---
 
-## How I'd Add Approvals (Bonus Question)
+## How I'd Add Approvals!?
 
 State machine:
 
