@@ -44,28 +44,62 @@ documentRoutes.get("/:id", async (c) => {
   }
 });
 
+// Validate TipTap content structure
+function isValidContent(content: any): boolean {
+  if (!content || typeof content !== "object") return false;
+  if (content.type !== "doc") return false;
+  if (content.content !== undefined && !Array.isArray(content.content))
+    return false;
+  return true;
+}
+
 // Create new document
 documentRoutes.post("/", async (c) => {
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
 
+    // Validate title
+    const rawTitle = (body.title || "").toString();
+    if (rawTitle.length > 255) {
+      return c.json(
+        wrapError("VALIDATION_ERROR", "Title cannot exceed 255 characters"),
+        400,
+      );
+    }
+    const title = rawTitle.trim() || "Untitled Document";
+
     // Default empty content
-    let content = { type: "doc", content: [{ type: "paragraph" }] };
+    let content: object = { type: "doc", content: [{ type: "paragraph" }] };
 
     // If template specified, load its content
     if (body.templateId) {
       const template = await storage.getTemplate(body.templateId);
-      if (template) {
+      if (template && template.content) {
         content = template.content;
       }
     }
 
+    // Use provided content if valid, otherwise use default/template
+    if (body.content) {
+      if (!isValidContent(body.content)) {
+        return c.json(
+          wrapError(
+            "VALIDATION_ERROR",
+            "Invalid content structure. Must be a valid TipTap document.",
+          ),
+          400,
+        );
+      }
+      content = body.content;
+    }
+
     const doc = {
       id: generateId("doc"),
-      title: body.title || "Untitled Document",
-      content: body.content || content,
+      title,
+      content,
       templateId: body.templateId || null,
+      settings: body.settings || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -93,10 +127,39 @@ documentRoutes.put("/:id", async (c) => {
       );
     }
 
+    // Validate title if provided
+    let title = existing.title;
+    if (body.title !== undefined) {
+      const rawTitle = (body.title || "").toString();
+      if (rawTitle.length > 255) {
+        return c.json(
+          wrapError("VALIDATION_ERROR", "Title cannot exceed 255 characters"),
+          400,
+        );
+      }
+      title = rawTitle.trim() || "Untitled Document";
+    }
+
+    // Validate content if provided
+    let content = existing.content;
+    if (body.content !== undefined) {
+      if (!isValidContent(body.content)) {
+        return c.json(
+          wrapError(
+            "VALIDATION_ERROR",
+            "Invalid content structure. Must be a valid TipTap document.",
+          ),
+          400,
+        );
+      }
+      content = body.content;
+    }
+
     const updated = {
       ...existing,
-      title: body.title ?? existing.title,
-      content: body.content ?? existing.content,
+      title,
+      content,
+      settings: body.settings ?? existing.settings ?? null,
       updatedAt: new Date().toISOString(),
     };
 
@@ -113,7 +176,15 @@ documentRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
 
   try {
-    await storage.deleteDocument(id);
+    const deleted = await storage.deleteDocument(id);
+
+    if (!deleted) {
+      return c.json(
+        wrapError("DOCUMENT_NOT_FOUND", `Document ${id} not found`),
+        404,
+      );
+    }
+
     return c.json(wrapResponse({ deleted: true }));
   } catch (error) {
     console.error("Error deleting document:", error);

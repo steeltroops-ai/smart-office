@@ -9,11 +9,17 @@ import { existsSync } from "fs";
 const DOCUMENTS_DIR = "./data/documents";
 const TEMPLATES_DIR = "./templates";
 
+interface DocumentSettings {
+  pageSize?: "a4" | "letter" | "legal" | "a5";
+  lineSpacing?: number;
+}
+
 interface Document {
   id: string;
   title: string;
   content: object;
   templateId?: string | null;
+  settings?: DocumentSettings | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -75,11 +81,20 @@ export const storage = {
     );
   },
 
-  async deleteDocument(id: string): Promise<void> {
+  async deleteDocument(id: string): Promise<boolean> {
+    const filePath = join(DOCUMENTS_DIR, `${id}.json`);
+
+    // Check if file exists before attempting delete
+    if (!existsSync(filePath)) {
+      return false; // File doesn't exist
+    }
+
     try {
-      await unlink(join(DOCUMENTS_DIR, `${id}.json`));
-    } catch {
-      // Ignore if file doesn't exist
+      await unlink(filePath);
+      return true;
+    } catch (error) {
+      console.error("Failed to delete document:", error);
+      return false;
     }
   },
 
