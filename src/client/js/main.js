@@ -44743,25 +44743,37 @@ class DocumentEditor {
 
 // src/client/js/api.ts
 var API_BASE = "/api";
-async function request(path, options = {}) {
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers
-      },
-      ...options
-    });
-    const result = await response.json();
-    if (!result.success) {
-      console.error(`API Error: ${result.error?.code} - ${result.error?.message}`);
-      return null;
-    }
-    return result.data ?? null;
-  } catch (error) {
-    console.error("API Request failed:", error);
-    return null;
+function getUserIdentity() {
+  let userId = localStorage.getItem("x_user_id");
+  if (!userId) {
+    userId = crypto.randomUUID();
+    localStorage.setItem("x_user_id", userId);
   }
+  return userId;
+}
+
+class ApiError extends Error {
+  code;
+  constructor(code2, message) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code2;
+  }
+}
+async function request(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-ID": getUserIdentity(),
+      ...options.headers
+    },
+    ...options
+  });
+  const result = await response.json();
+  if (!result.success) {
+    throw new ApiError(result.error?.code || "UNKNOWN_ERROR", result.error?.message || "Unknown error occurred");
+  }
+  return result.data;
 }
 var documentApi = {
   async list() {
@@ -44788,6 +44800,12 @@ var documentApi = {
       method: "DELETE"
     });
     return result?.deleted ?? false;
+  },
+  async heartbeat(id) {
+    const result = await request(`/documents/${id}/heartbeat`, {
+      method: "POST"
+    });
+    return result?.locked ?? false;
   }
 };
 var templateApi = {
@@ -44889,7 +44907,8 @@ var state = {
   isLoading: false,
   editor: null,
   voiceInput: null,
-  autoSaveTimer: null
+  autoSaveTimer: null,
+  heartbeatTimer: null
 };
 var elements2 = {
   docTitle: document.getElementById("doc-title"),
@@ -44967,6 +44986,26 @@ function updateDeleteButton() {
   if (elements2.btnDelete) {
     elements2.btnDelete.style.display = state.currentDocId ? "inline-flex" : "none";
   }
+}
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+function startHeartbeat(docId) {
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(async () => {
+    try {
+      const locked = await documentApi.heartbeat(docId);
+      if (!locked) {
+        updateStatus("⚠️ Lock lost! Copy your work.", "error");
+        stopHeartbeat();
+      }
+    } catch (e2) {
+      console.warn("Heartbeat failed:", e2);
+    }
+  }, 1e4);
 }
 function clearAutoSaveTimer() {
   if (state.autoSaveTimer) {
@@ -45223,6 +45262,9 @@ async function loadDocument(id) {
     updateStatus("Failed to load", "error");
   } finally {
     setLoading(false);
+    if (state.currentDocId) {
+      startHeartbeat(state.currentDocId);
+    }
   }
 }
 async function loadTemplate(templateId) {
@@ -45306,11 +45348,15 @@ async function saveDocument(isAutoSave = false, retryCount = 0) {
       updateStatus("Saved", "saved");
       updateDeleteButton();
       await loadDocuments();
-    } else {
-      throw new Error("Save failed (api returned null)");
+      startHeartbeat(doc3.id);
     }
   } catch (error) {
     console.error("Save error:", error);
+    if (error instanceof ApiError && error.code === "LOCKED") {
+      updateStatus(`\uD83D\uDD12 ${error.message}`, "error");
+      alert(`Cannot save: ${error.message}`);
+      return;
+    }
     if (isAutoSave && retryCount < 2) {
       const nextDelay = 1000 * (retryCount + 1);
       console.warn(`Auto-save failed, retrying in ${nextDelay}ms...`);
@@ -45331,6 +45377,7 @@ async function saveDocument(isAutoSave = false, retryCount = 0) {
 }
 async function createNewDocument() {
   clearAutoSaveTimer();
+  stopHeartbeat();
   const action = await handleUnsavedChanges();
   if (action === "cancel")
     return;

@@ -5,6 +5,7 @@ import { DocumentEditor } from "./editor";
 import {
   documentApi,
   templateApi,
+  ApiError,
   type DocumentSummary,
   type Template,
   type DocumentSettings,
@@ -21,6 +22,7 @@ interface AppState {
   editor: DocumentEditor | null;
   voiceInput: VoiceInput | null;
   autoSaveTimer: any | null;
+  heartbeatTimer: any | null;
 }
 
 const state: AppState = {
@@ -31,6 +33,7 @@ const state: AppState = {
   editor: null,
   voiceInput: null,
   autoSaveTimer: null,
+  heartbeatTimer: null,
 };
 
 // ============ DOM Elements ============
@@ -126,6 +129,30 @@ function updateDeleteButton(): void {
       ? "inline-flex"
       : "none";
   }
+}
+
+// ============ Heartbeat & Locking ============
+
+function stopHeartbeat(): void {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
+function startHeartbeat(docId: string): void {
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(async () => {
+    try {
+      const locked = await documentApi.heartbeat(docId);
+      if (!locked) {
+        updateStatus("⚠️ Lock lost! Copy your work.", "error");
+        stopHeartbeat();
+      }
+    } catch (e) {
+      console.warn("Heartbeat failed:", e);
+    }
+  }, 10000); // 10s interval
 }
 
 // ============ Auto-save Timer Management ============
@@ -505,6 +532,10 @@ async function loadDocument(id: string): Promise<void> {
     updateStatus("Failed to load", "error");
   } finally {
     setLoading(false);
+    // Start heartbeat if we loaded a doc successfully
+    if (state.currentDocId) {
+      startHeartbeat(state.currentDocId);
+    }
   }
 }
 
@@ -616,12 +647,16 @@ async function saveDocument(isAutoSave = false, retryCount = 0): Promise<void> {
       updateStatus("Saved", "saved");
       updateDeleteButton();
       await loadDocuments();
-    } else {
-      throw new Error("Save failed (api returned null)");
+      startHeartbeat(doc.id); // Ensure heartbeat running
     }
   } catch (error) {
     console.error("Save error:", error);
 
+    if (error instanceof ApiError && error.code === "LOCKED") {
+      updateStatus(`🔒 ${error.message}`, "error");
+      alert(`Cannot save: ${error.message}`);
+      return;
+    }
     // Auto-save retry logic (AS-002)
     if (isAutoSave && retryCount < 2) {
       const nextDelay = 1000 * (retryCount + 1);
@@ -646,8 +681,9 @@ async function saveDocument(isAutoSave = false, retryCount = 0): Promise<void> {
 }
 
 async function createNewDocument(): Promise<void> {
-  // Clear pending auto-save timer
+  // Clear timers
   clearAutoSaveTimer();
+  stopHeartbeat();
 
   // Handle unsaved changes with save option
   const action = await handleUnsavedChanges();

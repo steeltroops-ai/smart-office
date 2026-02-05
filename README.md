@@ -21,17 +21,18 @@ Open http://localhost:3000
 - **Rich text editing** - Bold, italic, headings, lists, alignment
 - **Font controls** - Family (Arial, Calibri, etc.) and size (8-72px)
 - **Templates** - Pre-made document formats (letters, memos)
-- **Voice dictation** - Click mic, speak, text appears (Chrome/Edge)
+- **Voice dictation** - Click mic, speak, text appears (Web Speech API for POC)
 - **PDF export** - Download as PDF
 - **Auto-save** - Saves after you stop typing
+- **Document Locking** - Prevents colleagues from overwriting your work
 
 ## How It Works
 
 ```
-Browser <---> Bun Server <---> JSON Files
+Browser <---> Bun Server <---> SQLite (WAL)
 ```
 
-That's it. Server serves the editor and handles document storage. Documents are JSON files in the `data/` folder.
+That's it. Server serves the editor and handles document storage. Documents are stored in `data/smart_office.sqlite`.
 
 ## Project Structure
 
@@ -61,12 +62,13 @@ docs/           # Design documentation
 - **Runtime**: Bun (could swap for Node.js)
 - **Server**: Hono (Express-like, smaller)
 - **Editor**: TipTap (headless, JSON-based)
-- **Storage**: JSON files (would move to SQLite for production)
+- **Storage**: SQLite (WAL Mode) - ACID compliant
+- **Auth**: Basic `X-User-ID` tracking
 
 ## Known Limitations
 
-1. **Voice only works in Chrome/Edge** - Firefox doesn't support offline speech recognition
-2. **No multi-user** - One person editing at a time, no locking
+1. **Voice only works in Chrome/Edge** - Firefox requires the Server-side Whisper upgrade (Architecture V2)
+2. **Locking is Pessimistic** - You must close the tab to unlock immediately (or wait 30s)
 3. **PDF is basic** - Complex formatting might not render perfectly
 4. **No search** - Would need a database for that
 5. **No tests** - Time constraints

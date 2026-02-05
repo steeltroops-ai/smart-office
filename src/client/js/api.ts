@@ -3,6 +3,17 @@
 
 const API_BASE = "/api";
 
+// ============ Identity & Helpers ============
+
+function getUserIdentity(): string {
+  let userId = localStorage.getItem("x_user_id");
+  if (!userId) {
+    userId = crypto.randomUUID();
+    localStorage.setItem("x_user_id", userId);
+  }
+  return userId;
+}
+
 // ============ Types ============
 
 export interface DocumentSettings {
@@ -46,33 +57,35 @@ export interface ApiResponse<T> {
 
 // ============ API Methods ============
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T | null> {
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      ...options,
-    });
-
-    const result: ApiResponse<T> = await response.json();
-
-    if (!result.success) {
-      console.error(
-        `API Error: ${result.error?.code} - ${result.error?.message}`,
-      );
-      return null;
-    }
-
-    return result.data ?? null;
-  } catch (error) {
-    console.error("API Request failed:", error);
-    return null;
+export class ApiError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
   }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-ID": getUserIdentity(),
+      ...options.headers,
+    },
+    ...options,
+  });
+
+  const result: ApiResponse<T> = await response.json();
+
+  if (!result.success) {
+    throw new ApiError(
+      result.error?.code || "UNKNOWN_ERROR",
+      result.error?.message || "Unknown error occurred",
+    );
+  }
+
+  return result.data as T;
 }
 
 // ============ Document API ============
@@ -129,6 +142,19 @@ export const documentApi = {
       method: "DELETE",
     });
     return result?.deleted ?? false;
+  },
+
+  /**
+   * Send heartbeat to maintain document lock
+   */
+  async heartbeat(id: string): Promise<boolean> {
+    const result = await request<{ locked: boolean }>(
+      `/documents/${id}/heartbeat`,
+      {
+        method: "POST",
+      },
+    );
+    return result?.locked ?? false;
   },
 };
 

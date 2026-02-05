@@ -18,56 +18,42 @@ The ask was: build something that gives them a modern editing experience but run
 
 ### System Architecture
 
-I kept it simple. One server serves both the API and the frontend. Clients connect over LAN.
+**Single Server (Monolith)**
 
 ```
-[Browser 1] ----+
-[Browser 2] ----+---> [Bun Server :3000] ---> [JSON Files]
-[Browser 3] ----+
+[Clients] <---> [Bun Server] <---> [SQLite (WAL Mode)]
 ```
 
-No database for the POC. Documents are just JSON files in a folder. Easy to debug, easy to backup (just copy the folder).
+*   **Choice:** **SQLite (WAL Mode)**
+*   **Rejected:** JSON Files (fs)
+*   **Why:** JSON files suffer from race conditions (last-write-wins). SQLite WAL provides atomic commits and safe concurrency without the overhead of Postgres.
 
-**For production with 100+ users**, I'd evolve this:
+**For Scale (100+ Users):**
+*   **Choice:** PostgreSQL + Redis
+*   **Why:** SQLite has a single writer lock. Postgres handles concurrent writes. Redis manages ephemeral distributed locks.
 
-```
-[Browsers] ---> [nginx] ---> [App Server 1] ---> [PostgreSQL]
-                         |-> [App Server 2] ---> [Redis for locks]
-                         |-> [App Server 3]
-```
+### Critical Tech Stack Decisions
 
-Why Postgres over SQLite? SQLite is single-writer. When 50 people save simultaneously, you get lock contention. Postgres handles concurrent writes properly.
+**Runtime**
+*   **Choice:** **Bun**
+*   **Rejected:** Node.js
+*   **Why:** Native TypeScript support (no `tsc` build step), 4x faster startup, and built-in SQLite driver. Reduces "Download Internet" fatigue on offline networks.
 
-Why Redis? For document locking. When user A opens a doc, Redis stores `{doc_id: user_a, expires: 30min}`. User B tries to open it, sees it's locked, gets notified when it's free.
+**Editor Engine**
+*   **Choice:** **TipTap (ProseMirror)**
+*   **Rejected:** Quill / CKEditor / HTML5 ContentEditable
+*   **Why:** It separates Model (JSON) from View (DOM).
+    *   *Depth:* Storing HTML is brittle. Storing JSON State allows deterministic rendering (e.g. to PDF or Mobile) without parsing messy DOM strings.
 
-### Why These Technologies?
+**API Framework**
+*   **Choice:** **Hono**
+*   **Rejected:** Express
+*   **Why:** Type-safe Router. 10x smaller. Shared types with client means if I change the API response, the Frontend build fails immediately.
 
-**Bun instead of Node.js**
-
-Honestly, both would work. I picked Bun because:
-- Runs TypeScript directly (no build step for server)
-- Has a bundler built in (no webpack config)
-- Fast startup helps during development
-
-The downside is it's newer, so Stack Overflow has fewer answers. For production, switching to Node.js would be straightforward since the code is the same.
-
-**TipTap for the Editor**
-
-I looked at Quill first because it's popular, but it stores documents in a format called "Delta" which is basically a list of operations. TipTap stores everything as JSON that looks like the actual document structure. This meant:
-- Saving = `JSON.stringify(editor.getJSON())`
-- Loading = `editor.setContent(JSON.parse(savedData))`
-
-No conversion layer needed. That's why I went with TipTap.
-
-Also considered: CKEditor (too heavy, 500KB+), Draft.js (abandoned by Facebook), ProseMirror directly (too low-level for a POC).
-
-**Hono instead of Express**
-
-Hono is basically Express but smaller (14kb vs 200kb). Doesn't matter much for a server-side app, but it has better TypeScript types and I'm more familiar with it.
-
-**Vanilla CSS, no Tailwind**
-
-For an offline-first app, I wanted minimal dependencies. One CSS file with CSS variables for theming. No build step, no utility class bloat.
+**Styling**
+*   **Choice:** **Vanilla CSS**
+*   **Rejected:** Tailwind / Bootstrap
+*   **Why:** Offline-first requirement. No build pipeline needed. One `.css` file is easier to debug in a browser console than 50 utility classes.
 
 ---
 
@@ -127,45 +113,23 @@ Auto-save triggers 2 seconds after you stop typing. The UI shows "Saving..." and
 
 Before saving: check your version matches server. If mismatch, someone else saved while you had it open → show diff, let user merge.
 
-### 3. Voice Input
+### 3. Voice Input (Architecture)
 
-This was the interesting part. The requirement was offline voice dictation.
+**The Challenge:** "Offline" usually implies privacy and zero-cloud.
 
-**Where it runs:** Browser. Not server.
+*   **Choice (V2 Enterprise):** **Local Whisper (Server-side)**
+*   **Rejected:** Web Speech API (Browser)
+*   **Why:**
+    *   *Privacy:* Browser APIs often silently send audio to Cloud (Google/Apple) for processing. Unacceptable for Secure Gov.
+    *   *Consistency:* Works on Firefox/Safari (which lack offline dictation).
 
-**Why browser?** Chrome and Edge ship with offline speech models. No setup, no model download, just works.
+**The Flow:**
+1.  **Capture:** MediaRecorder API captures raw PCM chunks.
+2.  **Stream:** WebSocket pushes chunks to Server.
+3.  **Process:** Server runs `Whisper.cpp` (WASM/C++) on audio buffer.
+4.  **Insert:** Text stream pushed back to Editor cursor.
 
-```javascript
-const recognition = new webkitSpeechRecognition();
-recognition.continuous = true;
-recognition.interimResults = true;
-
-recognition.onresult = (event) => {
-  const result = event.results[event.results.length - 1];
-  if (result.isFinal) {
-    editor.insertContent(result[0].transcript + ' ');
-  }
-};
-```
-
-**Audio flow:**
-1. User clicks mic button → `recognition.start()`
-2. Browser captures audio from microphone
-3. Browser's speech engine processes locally
-4. `onresult` fires with partial/final text
-5. Final text inserted at cursor position
-
-**Limitation:** Firefox doesn't support offline speech. Would need server-side Whisper as fallback.
-
-**For production with Whisper:**
-
-```
-Browser --[WebSocket: audio chunks]--> Server
-Server --[forward]--> Whisper (Python sidecar)
-Whisper --[text]--> Server --[WebSocket]--> Browser --[insert]
-```
-
-Model sizes: tiny (75MB, 70% accuracy), base (142MB, 85%), small (466MB, 92%). I'd deploy `base` by default.
+*(Note: V1 POC uses Web Speech API purely for demo ease, but the design mandates Whisper).*
 
 ### 4. Templates
 
@@ -233,7 +197,7 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 | Feature | Why I Skipped | When to Add |
 |---------|--------------|-------------|
-| User authentication | Not needed for POC demo | When deploying to real office |
+| User authentication | Basic Identity (Header) added | Needed for Locking/Auditing |
 | Real-time collaboration | Locking is simpler, fits gov use case | If they specifically request it |
 | Document versioning | Adds DB complexity | Phase 2, with SQLite migration |
 | Full-text search | Needs database indexing | When doc count > 500 |
@@ -265,27 +229,22 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 ---
 
-## How I'd Handle Multi-User!?
-Government offices don't need Google Docs-style real-time collaboration. They want **locking**: one person edits, others wait.
+## How I'd Handle Multi-User!? (Concurrency)
 
-```typescript
-async function openDocument(docId, userId) {
-  const lock = await redis.get(`lock:${docId}`);
-  
-  if (lock && lock.userId !== userId) {
-    return { error: `Locked by ${lock.userName}`, until: lock.expiresAt };
-  }
-  
-  await redis.setex(`lock:${docId}`, 1800, JSON.stringify({
-    userId, userName: getUser(userId).name,
-    expiresAt: Date.now() + 30 * 60 * 1000
-  }));
-  
-  return { doc: await db.get(docId), locked: true };
-}
-```
+**Strategy: Pessimistic Locking**
 
-Lock expires after 30 minutes of inactivity. On `beforeunload`, release lock early.
+*   **Choice:** **Locking + Heartbeats**
+*   **Rejected:** Real-time (CRDT/Y.js)
+*   **Why:**
+    *   *Workflow:* Government approval chains are sequential (Draft -> Review -> Approve), not collaborative brainstorming.
+    *   *Simplicity:* CRDTs add massive complexity (vector clocks, tombstones). Locking is easy to audit.
+
+**The Implementation:**
+1.  User A opens Doc: Server checks `locked_by`.
+    *   If null: Set `locked_by = A`, `expires = NOW + 30s`.
+2.  **Heartbeat:** Client A pings every 10s to extend lock.
+3.  User B opens Doc: Server sees lock. Returns `READ_ONLY` mode.
+4.  **FailSafe:** If A closes tab (no ping), lock expires in 30s. No admin intervention needed.
 
 ---
 
@@ -381,4 +340,24 @@ smart-office/
 
 ---
 
-That's it. Simple system, works offline, does what it needs to do.
+## Architectural Choices (Quick Summary)
+
+*   **Database: SQLite vs JSON Files**
+    *   **Choice:** SQLite (WAL Mode)
+    *   **Why:** JSON files corrupt data if 2 users save at once. SQLite is safe, atomic, and zero-config in Bun.
+
+*   **Voice: Local Whisper vs Web Speech API**
+    *   **Choice:** Local Whisper (Architecture)
+    *   **Why:** Web Speech API sends audio to Google Cloud. Whisper works 100% offline (Privacy/Compliance).
+
+*   **Auth: Basic Identity vs No Auth**
+    *   **Choice:** Header-based Identity (`X-User-ID`)
+    *   **Why:** "No Auth" is dangerous (anonymous deletions). We need to track who locked which document.
+
+*   **Locking: Heartbeat vs Hard Timeout**
+    *   **Choice:** Heartbeat (30s ping)
+    *   **Why:** Hard timeouts (e.g. 30min) block the whole team if a user crashes. Heartbeats release locks instantly when a user disconnects.
+
+*   **Runtime: Bun vs Node.js**
+    *   **Choice:** Bun
+    *   **Why:** Built-in TypeScript, SQLite, and 6x faster startup. Ideal for this self-contained POC.

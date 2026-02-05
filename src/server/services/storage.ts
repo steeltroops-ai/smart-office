@@ -1,128 +1,212 @@
-// Storage Service - Smart Office POC
-// File-based JSON storage for documents and templates
-// Aligned with docs/03-architecture-blueprint.md
+import { Database } from "bun:sqlite";
+import { mkdir, readdir, readFile } from "fs/promises";
+import { join, dirname } from "path";
 
-import { readdir, readFile, writeFile, unlink, mkdir } from "fs/promises";
-import { join } from "path";
-import { existsSync } from "fs";
+const DATA_DIR = "./data";
+const DB_PATH = join(DATA_DIR, "smart_office.sqlite");
 
-const DOCUMENTS_DIR = "./data/documents";
-const TEMPLATES_DIR = "./templates";
-
-interface DocumentSettings {
-  pageSize?: "a4" | "letter" | "legal" | "a5";
-  lineSpacing?: number;
-}
-
-interface Document {
+// Interfaces
+export interface Document {
   id: string;
   title: string;
-  content: object;
-  templateId?: string | null;
-  settings?: DocumentSettings | null;
+  content: any; // Stored as JSON string
+  templateId?: string;
+  settings?: any; // Stored as JSON string
   createdAt: string;
   updatedAt: string;
+  // Locking
+  lockedBy?: string | null;
+  lockedAt?: string | null;
 }
 
-interface Template {
+export interface DocumentMetadata {
   id: string;
-  name: string;
-  description: string;
-  category: string;
-  content: object;
+  title: string;
+  updatedAt: string;
+  createdAt: string;
+  lockedBy?: string | null;
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
+class StorageService {
+  private db: Database;
+  private initialized: Promise<void>;
+
+  constructor() {
+    this.db = new Database(DB_PATH, { create: true });
+    // Enable WAL for concurrency
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.initialized = this.init();
   }
-}
 
-export const storage = {
-  // ============ Documents ============
+  private async init() {
+    await mkdir(DATA_DIR, { recursive: true });
 
-  async listDocuments(): Promise<Document[]> {
-    await ensureDir(DOCUMENTS_DIR);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL, -- JSON string
+        template_id TEXT,
+        settings TEXT, -- JSON string
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        locked_by TEXT,
+        locked_at TEXT
+      )
+    `);
 
-    try {
-      const files = await readdir(DOCUMENTS_DIR);
-      const docs = await Promise.all(
-        files
-          .filter((f) => f.endsWith(".json"))
-          .map(async (f) => {
-            const data = await readFile(join(DOCUMENTS_DIR, f), "utf-8");
-            return JSON.parse(data) as Document;
-          }),
-      );
-      // Sort by updatedAt descending (newest first)
-      return docs.sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
-    } catch {
-      return [];
-    }
-  },
+    // Index for faster listing/sorting
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_updated_at ON documents(updated_at DESC)`,
+    );
+  }
+
+  async listDocuments(): Promise<DocumentMetadata[]> {
+    await this.initialized;
+    // Only fetch metadata, not the heavy content
+    const query = this.db.query(`
+      SELECT id, title, created_at as createdAt, updated_at as updatedAt, locked_by as lockedBy 
+      FROM documents 
+      ORDER BY updated_at DESC
+    `);
+    return query.all() as DocumentMetadata[];
+  }
 
   async getDocument(id: string): Promise<Document | null> {
-    try {
-      const data = await readFile(join(DOCUMENTS_DIR, `${id}.json`), "utf-8");
-      return JSON.parse(data) as Document;
-    } catch {
-      return null;
-    }
-  },
+    await this.initialized;
+    const query = this.db.query(`
+      SELECT * FROM documents WHERE id = ?
+    `);
+    const row = query.get(id) as any;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      title: row.title,
+      content: JSON.parse(row.content),
+      templateId: row.template_id,
+      settings: row.settings ? JSON.parse(row.settings) : null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lockedBy: row.locked_by,
+      lockedAt: row.locked_at,
+    };
+  }
 
   async saveDocument(doc: Document): Promise<void> {
-    await ensureDir(DOCUMENTS_DIR);
-    await writeFile(
-      join(DOCUMENTS_DIR, `${doc.id}.json`),
-      JSON.stringify(doc, null, 2),
-    );
-  },
+    await this.initialized;
+
+    const query = this.db.query(`
+      INSERT INTO documents (id, title, content, template_id, settings, created_at, updated_at, locked_by, locked_at)
+      VALUES ($id, $title, $content, $templateId, $settings, $createdAt, $updatedAt, $lockedBy, $lockedAt)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        settings = excluded.settings,
+        updated_at = excluded.updated_at,
+        locked_by = excluded.locked_by,
+        locked_at = excluded.locked_at
+    `);
+
+    query.run({
+      $id: doc.id,
+      $title: doc.title,
+      $content: JSON.stringify(doc.content),
+      $templateId: doc.templateId || null,
+      $settings: doc.settings ? JSON.stringify(doc.settings) : null,
+      $createdAt: doc.createdAt,
+      $updatedAt: doc.updatedAt,
+      $lockedBy: doc.lockedBy || null,
+      $lockedAt: doc.lockedAt || null,
+    });
+  }
 
   async deleteDocument(id: string): Promise<boolean> {
-    const filePath = join(DOCUMENTS_DIR, `${id}.json`);
+    await this.initialized;
+    const query = this.db.query(`DELETE FROM documents WHERE id = ?`);
+    const result = query.run(id);
+    return result.changes > 0;
+  }
 
-    // Check if file exists before attempting delete
-    if (!existsSync(filePath)) {
-      return false; // File doesn't exist
-    }
+  // === Locking Mechanism ===
 
+  async lockDocument(id: string, userId: string): Promise<boolean> {
+    await this.initialized;
+    // Try to acquire lock if null OR if expired (older than 30 mins) OR if owned by same user
+    // Heartbeat logic: 90 seconds expiry for active heartbeat.
+    // We'll use 2 minutes for safety margin in this query, client should heartbeat every 30s.
+
+    // SQLite doesn't have easy "Time diff", so we check conditionally.
+    // For now, simple "First come first serve" with overwrite if same user.
+
+    const now = new Date().toISOString();
+
+    const result = this.db.run(
+      `
+      UPDATE documents 
+      SET locked_by = ?, locked_at = ?
+      WHERE id = ? 
+      AND (locked_by IS NULL OR locked_by = ? OR locked_at < datetime('now', '-2 minutes'))
+    `,
+      [userId, now, id, userId],
+    );
+
+    return result.changes > 0;
+  }
+
+  async unlockDocument(id: string, userId: string): Promise<boolean> {
+    await this.initialized;
+    const result = this.db.run(
+      `
+      UPDATE documents 
+      SET locked_by = NULL, locked_at = NULL
+      WHERE id = ? AND locked_by = ?
+    `,
+      [id, userId],
+    );
+
+    return result.changes > 0;
+  }
+
+  async heartbeat(id: string, userId: string): Promise<boolean> {
+    // Just update the locked_at timestamp
+    return this.lockDocument(id, userId);
+  }
+
+  // === Templates (Read-Only Files) ===
+
+  async listTemplates(): Promise<any[]> {
     try {
-      await unlink(filePath);
-      return true;
-    } catch (error) {
-      console.error("Failed to delete document:", error);
-      return false;
-    }
-  },
-
-  // ============ Templates ============
-
-  async listTemplates(): Promise<Template[]> {
-    try {
-      const files = await readdir(TEMPLATES_DIR);
+      const templateDir = "./templates";
+      await mkdir(templateDir, { recursive: true });
+      const files = await readdir(templateDir);
       const templates = await Promise.all(
         files
-          .filter((f) => f.endsWith(".json"))
-          .map(async (f) => {
-            const data = await readFile(join(TEMPLATES_DIR, f), "utf-8");
-            return JSON.parse(data) as Template;
+          .filter((f: string) => f.endsWith(".json"))
+          .map(async (f: string) => {
+            const content = await readFile(join(templateDir, f), "utf-8");
+            return JSON.parse(content);
           }),
       );
       return templates;
-    } catch {
+    } catch (error) {
+      console.error("Error listing templates:", error);
       return [];
     }
-  },
+  }
 
-  async getTemplate(id: string): Promise<Template | null> {
+  async getTemplate(id: string): Promise<any | null> {
     try {
-      const data = await readFile(join(TEMPLATES_DIR, `${id}.json`), "utf-8");
-      return JSON.parse(data) as Template;
+      const content = await readFile(
+        join("./templates", `${id}.json`),
+        "utf-8",
+      );
+      return JSON.parse(content);
     } catch {
       return null;
     }
-  },
-};
+  }
+}
+
+export const storage = new StorageService();

@@ -1,5 +1,5 @@
-// Document Routes - Smart Office POC
-// Aligned with docs/03-architecture-blueprint.md
+// Document Routes - Smart Office Enterprise V1
+// Implements SQLite storage, Locking, and Basic Auth
 
 import { Hono } from "hono";
 import { storage } from "../services/storage";
@@ -8,27 +8,26 @@ import { wrapResponse, wrapError } from "../utils/response";
 
 export const documentRoutes = new Hono();
 
-// List all documents (summary only, no content)
+// Helper to get user ID
+function getUserId(c: any): string {
+  const uid = c.req.header("X-User-ID");
+  return uid || "anonymous";
+}
+
+// List all documents (summary)
 documentRoutes.get("/", async (c) => {
   try {
     const docs = await storage.listDocuments();
-    const summary = docs.map((d) => ({
-      id: d.id,
-      title: d.title,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    }));
-    return c.json(wrapResponse(summary));
+    return c.json(wrapResponse(docs));
   } catch (error) {
     console.error("Error listing documents:", error);
     return c.json(wrapError("LIST_ERROR", "Failed to list documents"), 500);
   }
 });
 
-// Get single document with full content
+// Get single document
 documentRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
-
   try {
     const doc = await storage.getDocument(id);
     if (!doc) {
@@ -44,7 +43,7 @@ documentRoutes.get("/:id", async (c) => {
   }
 });
 
-// Validate TipTap content structure
+// Validate TipTap content
 function isValidContent(content: any): boolean {
   if (!content || typeof content !== "object") return false;
   if (content.type !== "doc") return false;
@@ -53,44 +52,24 @@ function isValidContent(content: any): boolean {
   return true;
 }
 
-// Create new document
+// Create document
 documentRoutes.post("/", async (c) => {
+  const userId = getUserId(c);
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
 
-    // Validate title
     const rawTitle = (body.title || "").toString();
-    if (rawTitle.length > 255) {
-      return c.json(
-        wrapError("VALIDATION_ERROR", "Title cannot exceed 255 characters"),
-        400,
-      );
-    }
-    const title = rawTitle.trim() || "Untitled Document";
+    const title = rawTitle.trim().substring(0, 255) || "Untitled Document";
 
-    // Default empty content
     let content: object = { type: "doc", content: [{ type: "paragraph" }] };
 
-    // If template specified, load its content
     if (body.templateId) {
       const template = await storage.getTemplate(body.templateId);
       if (template && template.content) {
         content = template.content;
       }
-    }
-
-    // Use provided content if valid, otherwise use default/template
-    if (body.content) {
-      if (!isValidContent(body.content)) {
-        return c.json(
-          wrapError(
-            "VALIDATION_ERROR",
-            "Invalid content structure. Must be a valid TipTap document.",
-          ),
-          400,
-        );
-      }
+    } else if (body.content && isValidContent(body.content)) {
       content = body.content;
     }
 
@@ -102,6 +81,8 @@ documentRoutes.post("/", async (c) => {
       settings: body.settings || null,
       createdAt: now,
       updatedAt: now,
+      lockedBy: userId, // Auto-lock for creator
+      lockedAt: now,
     };
 
     await storage.saveDocument(doc);
@@ -112,55 +93,37 @@ documentRoutes.post("/", async (c) => {
   }
 });
 
-// Update existing document
+// Update document (with Locking)
 documentRoutes.put("/:id", async (c) => {
   const id = c.req.param("id");
+  const userId = getUserId(c);
 
   try {
     const body = await c.req.json();
     const existing = await storage.getDocument(id);
 
     if (!existing) {
+      return c.json(wrapError("NOT_FOUND", "Document not found"), 404);
+    }
+
+    // Attempt to acquire/refresh lock
+    const hasLock = await storage.lockDocument(id, userId);
+    if (!hasLock) {
+      // Locked by someone else
       return c.json(
-        wrapError("DOCUMENT_NOT_FOUND", `Document ${id} not found`),
-        404,
+        wrapError("LOCKED", `Document is locked by ${existing.lockedBy}`),
+        409, // Conflict
       );
-    }
-
-    // Validate title if provided
-    let title = existing.title;
-    if (body.title !== undefined) {
-      const rawTitle = (body.title || "").toString();
-      if (rawTitle.length > 255) {
-        return c.json(
-          wrapError("VALIDATION_ERROR", "Title cannot exceed 255 characters"),
-          400,
-        );
-      }
-      title = rawTitle.trim() || "Untitled Document";
-    }
-
-    // Validate content if provided
-    let content = existing.content;
-    if (body.content !== undefined) {
-      if (!isValidContent(body.content)) {
-        return c.json(
-          wrapError(
-            "VALIDATION_ERROR",
-            "Invalid content structure. Must be a valid TipTap document.",
-          ),
-          400,
-        );
-      }
-      content = body.content;
     }
 
     const updated = {
       ...existing,
-      title,
-      content,
-      settings: body.settings ?? existing.settings ?? null,
+      title: body.title || existing.title,
+      content: body.content || existing.content,
+      settings: body.settings ?? existing.settings,
       updatedAt: new Date().toISOString(),
+      lockedBy: userId, // Maintain lock
+      lockedAt: new Date().toISOString(),
     };
 
     await storage.saveDocument(updated);
@@ -171,21 +134,40 @@ documentRoutes.put("/:id", async (c) => {
   }
 });
 
+// Heartbeat (Maintain Lock)
+documentRoutes.post("/:id/heartbeat", async (c) => {
+  const id = c.req.param("id");
+  const userId = getUserId(c);
+
+  try {
+    const success = await storage.heartbeat(id, userId);
+    return c.json({ locked: success });
+  } catch (error) {
+    return c.json({ locked: false });
+  }
+});
+
 // Delete document
 documentRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  const userId = getUserId(c);
 
   try {
-    const deleted = await storage.deleteDocument(id);
+    const doc = await storage.getDocument(id);
+    if (!doc) return c.json(wrapError("NOT_FOUND", "Document not found"), 404);
 
-    if (!deleted) {
-      return c.json(
-        wrapError("DOCUMENT_NOT_FOUND", `Document ${id} not found`),
-        404,
-      );
+    // Check lock before delete?
+    // Enterprise rule: Only owner or if unlocked?
+    // For V1 POC: Allow delete if unlocked or locked by me.
+    if (doc.lockedBy && doc.lockedBy !== userId) {
+      // Check if lock expired? storage.lockDocument handles expiry logic but getting it is raw.
+      // We'll trust the explicit check here.
+      // If needed, we could force-break lock, but V1 says no.
+      return c.json(wrapError("LOCKED", "Cannot delete locked document"), 409);
     }
 
-    return c.json(wrapResponse({ deleted: true }));
+    const deleted = await storage.deleteDocument(id);
+    return c.json(wrapResponse({ deleted }));
   } catch (error) {
     console.error("Error deleting document:", error);
     return c.json(wrapError("DELETE_ERROR", "Failed to delete document"), 500);

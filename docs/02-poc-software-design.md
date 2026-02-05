@@ -43,8 +43,8 @@ flowchart LR
 
 | Excluded Feature | Reason |
 |------------------|--------|
-| User Authentication | Not required for POC |
-| Real-time Collaboration | Explicitly marked as "future complexity" |
+| User Authentication | Basic Identity (Header) added check |
+| Real-time Collaboration | Replaced with Pessimistic Locking |
 | DOCX Export | PDF is sufficient for demo |
 | Offline PWA | Server is source of truth |
 | Search | Requires database, not needed for demo |
@@ -67,12 +67,13 @@ flowchart TB
     subgraph BACKEND["Server"]
         BUN["Bun Runtime"]
         HONO["Hono Framework"]
-        FS["JSON File Storage"]
+        DB["SQLite (Native)"]
     end
     
     FRONTEND <-->|"HTTP/REST"| BACKEND
     
     style BUN fill:#f472b6,color:#fff
+    style DB fill:#f472b6,color:#fff
     style TIPTAP fill:#4f46e5,color:#fff
 ```
 
@@ -84,7 +85,7 @@ flowchart TB
 | **Hono** | Ultra-lightweight (14kb), Express-like API, TypeScript native |
 | **TipTap** | JSON storage format, headless design, ProseMirror foundation |
 | **Vanilla CSS** | No framework dependency, full control, simple for POC |
-| **JSON Files** | Human-readable, no database setup, easy debugging |
+| **SQLite** | ACID compliance, zero-config in Bun, prevents data corruption |
 
 **Note:** I'm using Vanilla CSS, not Tailwind, to keep dependencies minimal. Fits the offline-first philosophy better.
 
@@ -166,7 +167,7 @@ sequenceDiagram
     User->>Browser: Clicks Save
     Editor->>API: Get JSON content
     API->>Server: PUT /api/documents/:id
-    Server->>Storage: Write JSON file
+    Server->>Storage: Upsert to SQLite
     Storage-->>Server: Success
     Server-->>Browser: 200 OK
     Browser-->>User: "Saved" feedback
@@ -181,6 +182,7 @@ sequenceDiagram
 | POST | `/api/documents` | Create document | `{title, content}` | `Document` |
 | PUT | `/api/documents/:id` | Update document | `{title, content}` | `Document` |
 | DELETE | `/api/documents/:id` | Delete document | - | `{success: true}` |
+| POST | `/api/documents/:id/heartbeat` | Maintain Lock | - | `{locked: boolean}` |
 | GET | `/api/templates` | List templates | - | `Template[]` |
 | GET | `/api/templates/:id` | Get template | - | `Template` |
 | GET | `/api/documents/:id/pdf` | Export as PDF | - | PDF file (binary) |
@@ -200,7 +202,10 @@ sequenceDiagram
     ]
   },
   "createdAt": "2026-02-04T22:00:00Z",
-  "updatedAt": "2026-02-04T22:30:00Z"
+  "updatedAt": "2026-02-04T22:30:00Z",
+  "lockedBy": "user-uuid-123",
+  "lockedAt": "2026-02-04T22:30:00Z",
+  "settings": { "pageSize": "a4" }
 }
 ```
 
@@ -422,51 +427,25 @@ documentRoutes.delete('/:id', async (c) => {
 
 ```typescript
 // server/services/storage.ts
-import { readdir, readFile, writeFile, unlink, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { Database } from "bun:sqlite";
+import { mkdir } from "fs/promises";
 
-const DATA_DIR = './data/documents';
+const DB_PATH = './data/smart_office.sqlite';
 
-async function ensureDir() {
-  await mkdir(DATA_DIR, { recursive: true });
+class StorageService {
+  private db: Database;
+  
+  constructor() {
+    this.db = new Database(DB_PATH, { create: true });
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.init();
+  }
+  
+  // See src/server/services/storage.ts for full Implementation
+  // Methods: listDocuments, getDocument, saveDocument, deleteDocument, lockDocument, heartbeat
 }
 
-export const storage = {
-  async listDocuments() {
-    await ensureDir();
-    const files = await readdir(DATA_DIR);
-    const docs = await Promise.all(
-      files
-        .filter(f => f.endsWith('.json'))
-        .map(async f => {
-          const content = await readFile(join(DATA_DIR, f), 'utf-8');
-          return JSON.parse(content);
-        })
-    );
-    return docs;
-  },
-  
-  async getDocument(id: string) {
-    try {
-      const content = await readFile(join(DATA_DIR, `${id}.json`), 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      return null;
-    }
-  },
-  
-  async saveDocument(doc: { id: string; [key: string]: any }) {
-    await ensureDir();
-    await writeFile(
-      join(DATA_DIR, `${doc.id}.json`),
-      JSON.stringify(doc, null, 2)
-    );
-  },
-  
-  async deleteDocument(id: string) {
-    await unlink(join(DATA_DIR, `${id}.json`));
-  }
-};
+export const storage = new StorageService();
 ```
 
 ---
@@ -479,10 +458,10 @@ I'm using the browser's Web Speech API for the POC (same reasoning as in 01-desi
 
 ```mermaid
 flowchart TB
-    subgraph POC["POC: Browser Voice"]
-        A["Uses Web Speech API"]
-        B["Works in Chrome/Edge offline"]
-        C["Zero server infrastructure"]
+    subgraph POC["POC: Local Whisper"]
+        A["Uses Whisper.cpp (WASM)"]
+        B["Works 100% Offline"]
+        C["Zero Cloud Dependency"]
     end
     
     subgraph FUTURE["Future: Server Voice"]
@@ -594,9 +573,9 @@ flowchart TB
 Follows the same progression from `01-design-and-approach.md`:
 
 ```
-v1 (POC): JSON Files → v2: SQLite → v3: PostgreSQL
-v1: Web Speech → v2: Add Whisper option
-v1: No auth → v2: Basic auth → v3: Role-based
+v1 (Enterprise): SQLite (Completed) → v3: PostgreSQL
+v1: Web Speech (Demo) → v2: Local Whisper (Architecture)
+v1: Basic Auth (Header) → v2: Role-based
 ```
 
 ---
