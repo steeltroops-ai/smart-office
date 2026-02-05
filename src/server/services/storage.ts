@@ -38,6 +38,25 @@ class StorageService {
     this.initialized = this.init();
   }
 
+  private async migrateSchema() {
+    // Basic migration helper for V1 POC
+    const addColumn = (colDef: string) => {
+      try {
+        this.db.run(`ALTER TABLE documents ADD COLUMN ${colDef}`);
+        console.log(`[Storage] Migrated schema: Added ${colDef}`);
+      } catch (e: any) {
+        // Ignore "duplicate column name" error
+        if (!e.message.includes("duplicate column name")) {
+          console.warn(`[Storage] Migration warning for ${colDef}:`, e.message);
+        }
+      }
+    };
+
+    addColumn("locked_by TEXT");
+    addColumn("locked_at TEXT");
+    addColumn("settings TEXT");
+  }
+
   private async init() {
     await mkdir(DATA_DIR, { recursive: true });
 
@@ -54,6 +73,9 @@ class StorageService {
         locked_at TEXT
       )
     `);
+
+    // Ensure columns exist (for existing tables)
+    await this.migrateSchema();
 
     // Index for faster listing/sorting
     this.db.run(

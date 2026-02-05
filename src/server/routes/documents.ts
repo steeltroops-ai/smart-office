@@ -141,9 +141,12 @@ documentRoutes.post("/:id/heartbeat", async (c) => {
 
   try {
     const success = await storage.heartbeat(id, userId);
-    return c.json({ locked: success });
+    return c.json(wrapResponse({ locked: success }));
   } catch (error) {
-    return c.json({ locked: false });
+    console.error("Heartbeat error:", error);
+    // Return success:true but locked:false so client knows it lost lock gracefully
+    // instead of throwing network error
+    return c.json(wrapResponse({ locked: false }));
   }
 });
 
