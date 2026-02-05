@@ -793,14 +793,14 @@ stateDiagram-v2
     Draft --> UnderReview : Submit
     Draft --> Draft : Edit
 
-    UnderReview --> Approved : "Approver: Approve"
-    UnderReview --> Rejected : "Approver: Reject"
-    UnderReview --> ChangesRequested : "Approver: Request Changes"
+    UnderReview --> Approved : Approver (Approve)
+    UnderReview --> Rejected : Approver (Reject)
+    UnderReview --> ChangesRequested : Approver (Request Changes)
 
-    ChangesRequested --> Draft : "Author: Revise"
+    ChangesRequested --> Draft : Author (Revise)
 
-    Rejected --> Draft : Author: Revise
-    Rejected --> [*] : Author: Abandon
+    Rejected --> Draft : Author (Revise)
+    Rejected --> [*] : Author (Abandon)
 
     Approved --> Published : Publish
     Published --> [*]
