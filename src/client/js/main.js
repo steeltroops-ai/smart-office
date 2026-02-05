@@ -44908,7 +44908,10 @@ var elements2 = {
   pageSize: document.getElementById("page-size"),
   lineSpacing: document.getElementById("line-spacing"),
   fontFamily: document.getElementById("font-family"),
-  fontSize: document.getElementById("font-size")
+  fontSize: document.getElementById("font-size"),
+  btnMenu: document.getElementById("btn-menu"),
+  sidebar: document.getElementById("sidebar"),
+  sidebarOverlay: document.getElementById("sidebar-overlay")
 };
 function updateStatus(text, type = "default") {
   elements2.statusText.textContent = text;
@@ -44947,11 +44950,16 @@ function markDirty() {
     updateStatus("Unsaved changes");
     updateDeleteButton();
   }
+  if (state.autoSaveTimer)
+    clearTimeout(state.autoSaveTimer);
   if (state.currentDocId) {
-    if (state.autoSaveTimer)
-      clearTimeout(state.autoSaveTimer);
     state.autoSaveTimer = setTimeout(() => {
       saveDocument(true);
+    }, 2000);
+  } else {
+    state.autoSaveTimer = setTimeout(() => {
+      saveDraft();
+      updateStatus("Draft saved locally");
     }, 2000);
   }
 }
@@ -44959,6 +44967,85 @@ function updateDeleteButton() {
   if (elements2.btnDelete) {
     elements2.btnDelete.style.display = state.currentDocId ? "inline-flex" : "none";
   }
+}
+function clearAutoSaveTimer() {
+  if (state.autoSaveTimer) {
+    clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = null;
+  }
+}
+function toggleSidebar(forceState) {
+  const isOpen = forceState !== undefined ? forceState : elements2.sidebar.classList.contains("open");
+  if (isOpen) {
+    elements2.sidebar.classList.remove("open");
+    elements2.sidebarOverlay.classList.remove("active");
+  } else {
+    elements2.sidebar.classList.add("open");
+    elements2.sidebarOverlay.classList.add("active");
+  }
+}
+var DRAFT_KEY = "smart-office-draft";
+function saveDraft() {
+  if (!state.currentDocId && state.editor) {
+    const title = elements2.docTitle.value || "Untitled Document";
+    const content = state.editor.getJSON();
+    const charCount = state.editor.getCharacterCount();
+    if (charCount > 0 || title !== "Untitled Document" && title !== "") {
+      const draft = {
+        title,
+        content,
+        timestamp: Date.now()
+      };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        console.log("[Smart Office] Draft saved to localStorage");
+      } catch (e2) {
+        console.warn("[Smart Office] Failed to save draft:", e2);
+      }
+    }
+  }
+}
+function loadDraft() {
+  try {
+    const data = localStorage.getItem(DRAFT_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (e2) {
+    console.warn("[Smart Office] Failed to load draft:", e2);
+  }
+  return null;
+}
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch (e2) {}
+}
+function isValidTipTapContent(content) {
+  if (!content || typeof content !== "object")
+    return false;
+  if (content.type !== "doc")
+    return false;
+  if (content.content !== undefined && !Array.isArray(content.content))
+    return false;
+  return true;
+}
+async function handleUnsavedChanges() {
+  if (!state.isDirty)
+    return "proceed";
+  const wantToSave = window.confirm(`You have unsaved changes.
+
+` + "Click OK to save before continuing, or Cancel to choose another option.");
+  if (wantToSave) {
+    await saveDocument(false);
+    if (!state.isDirty) {
+      return "proceed";
+    }
+    const discardAnyway = window.confirm("Save failed. Discard your changes and continue anyway?");
+    return discardAnyway ? "proceed" : "cancel";
+  }
+  const discardChanges = window.confirm("Discard your unsaved changes?");
+  return discardChanges ? "proceed" : "cancel";
 }
 function setLoading(loading) {
   state.isLoading = loading;
@@ -45005,8 +45092,12 @@ function renderDocumentList(documents) {
     btn.addEventListener("click", (e2) => {
       e2.stopPropagation();
       const id = btn.dataset.id;
-      if (id)
+      if (id) {
         loadDocument(id);
+        if (window.innerWidth <= 768) {
+          toggleSidebar(false);
+        }
+      }
     });
   });
   elements2.documentList.querySelectorAll(".doc-item-delete").forEach((btn) => {
@@ -45042,8 +45133,12 @@ function renderTemplateList(templates) {
   elements2.templateList.querySelectorAll(".template-item").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.id;
-      if (id)
+      if (id) {
         loadTemplate(id);
+        if (window.innerWidth <= 768) {
+          toggleSidebar(false);
+        }
+      }
     });
   });
 }
@@ -45051,6 +45146,22 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+function applyPageSize(size) {
+  elements2.editorEl.classList.remove("page-a4", "page-letter", "page-legal", "page-a5");
+  elements2.editorEl.classList.add(`page-${size}`);
+}
+function applyLineSpacing(spacing) {
+  const proseMirror = elements2.editorEl.querySelector(".ProseMirror");
+  if (proseMirror) {
+    proseMirror.style.lineHeight = spacing.toString();
+  }
+}
+function getCurrentSettings() {
+  return {
+    pageSize: elements2.pageSize?.value || "a4",
+    lineSpacing: parseFloat(elements2.lineSpacing?.value || "1.15")
+  };
 }
 async function loadDocuments() {
   const docs = await documentApi.list();
@@ -45061,11 +45172,10 @@ async function loadTemplates() {
   renderTemplateList(templates);
 }
 async function loadDocument(id) {
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm("You have unsaved changes. Discard them?");
-    if (!confirmDiscard)
-      return;
-  }
+  clearAutoSaveTimer();
+  const action = await handleUnsavedChanges();
+  if (action === "cancel")
+    return;
   setLoading(true);
   updateStatus("Loading...", "saving");
   try {
@@ -45074,9 +45184,33 @@ async function loadDocument(id) {
       state.currentDocId = doc3.id;
       elements2.docTitle.value = doc3.title;
       if (state.editor && doc3.content) {
-        state.editor.setContent(doc3.content);
+        if (isValidTipTapContent(doc3.content)) {
+          try {
+            state.editor.setContent(doc3.content);
+          } catch (e2) {
+            console.error("Failed to set document content:", e2);
+            updateStatus("Content error, using empty document", "error");
+            state.editor.clear();
+          }
+        } else {
+          console.warn("Invalid document content structure, using empty document");
+          state.editor.clear();
+        }
+      } else if (state.editor) {
+        state.editor.clear();
+      }
+      if (doc3.settings) {
+        if (doc3.settings.pageSize && elements2.pageSize) {
+          elements2.pageSize.value = doc3.settings.pageSize;
+          applyPageSize(doc3.settings.pageSize);
+        }
+        if (doc3.settings.lineSpacing && elements2.lineSpacing) {
+          elements2.lineSpacing.value = doc3.settings.lineSpacing.toString();
+          applyLineSpacing(doc3.settings.lineSpacing);
+        }
       }
       state.isDirty = false;
+      clearDraft();
       updateStatus("Loaded", "saved");
       updateWordCount();
       updateDeleteButton();
@@ -45092,11 +45226,10 @@ async function loadDocument(id) {
   }
 }
 async function loadTemplate(templateId) {
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm("You have unsaved changes. Discard them?");
-    if (!confirmDiscard)
-      return;
-  }
+  clearAutoSaveTimer();
+  const action = await handleUnsavedChanges();
+  if (action === "cancel")
+    return;
   setLoading(true);
   updateStatus("Loading template...", "saving");
   try {
@@ -45108,6 +45241,7 @@ async function loadTemplate(templateId) {
         state.editor.setContent(template.content);
       }
       state.isDirty = true;
+      clearDraft();
       updateStatus("Template loaded - click Save to create document");
       updateWordCount();
       updateDeleteButton();
@@ -45126,7 +45260,8 @@ async function loadTemplate(templateId) {
     setLoading(false);
   }
 }
-async function saveDocument(isAutoSave = false) {
+async function saveDocument(isAutoSave = false, retryCount = 0) {
+  clearAutoSaveTimer();
   if (state.isSaving || state.isLoading)
     return;
   state.isSaving = true;
@@ -45143,45 +45278,67 @@ async function saveDocument(isAutoSave = false) {
       setLoading(false);
     return;
   }
+  if (!isAutoSave && state.currentDocId && isContentEmpty) {
+    const confirmSave = window.confirm("This document is empty. Are you sure you want to save it?");
+    if (!confirmSave) {
+      state.isSaving = false;
+      setLoading(false);
+      return;
+    }
+  }
   const finalTitle = title || "Untitled Document";
+  const settings = getCurrentSettings();
   try {
     let doc3;
     if (state.currentDocId) {
       doc3 = await documentApi.update(state.currentDocId, {
         title: finalTitle,
-        content
+        content,
+        settings
       });
     } else {
-      doc3 = await documentApi.create({ title: finalTitle, content });
+      doc3 = await documentApi.create({ title: finalTitle, content, settings });
     }
     if (doc3) {
       state.currentDocId = doc3.id;
       state.isDirty = false;
+      clearDraft();
       updateStatus("Saved", "saved");
       updateDeleteButton();
       await loadDocuments();
     } else {
-      updateStatus("Save failed", "error");
+      throw new Error("Save failed (api returned null)");
     }
   } catch (error) {
     console.error("Save error:", error);
+    if (isAutoSave && retryCount < 2) {
+      const nextDelay = 1000 * (retryCount + 1);
+      console.warn(`Auto-save failed, retrying in ${nextDelay}ms...`);
+      state.isSaving = false;
+      setTimeout(() => {
+        saveDocument(true, retryCount + 1);
+      }, nextDelay);
+      return;
+    }
     updateStatus("Save failed", "error");
   } finally {
-    state.isSaving = false;
-    if (!isAutoSave)
-      setLoading(false);
+    if (!isAutoSave || retryCount >= 2) {
+      state.isSaving = false;
+      if (!isAutoSave)
+        setLoading(false);
+    }
   }
 }
 async function createNewDocument() {
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm("You have unsaved changes. Discard them?");
-    if (!confirmDiscard)
-      return;
-  }
+  clearAutoSaveTimer();
+  const action = await handleUnsavedChanges();
+  if (action === "cancel")
+    return;
   state.currentDocId = null;
   elements2.docTitle.value = "";
   state.editor?.clear();
   state.isDirty = false;
+  clearDraft();
   updateStatus("New document");
   updateWordCount();
   updateDeleteButton();
@@ -45223,6 +45380,55 @@ async function deleteCurrentDocument() {
     return;
   await deleteDocument(state.currentDocId);
 }
+var PAGE_SIZES = {
+  a4: { width: 210, height: 297 },
+  a5: { width: 148, height: 210 },
+  letter: { width: 215.9, height: 279.4 },
+  legal: { width: 215.9, height: 355.6 }
+};
+var PDF_MARGIN = 25.4;
+function mapFontFamily(fontFamily) {
+  if (!fontFamily)
+    return "helvetica";
+  const lower = fontFamily.toLowerCase();
+  if (lower.includes("times") || lower.includes("serif"))
+    return "times";
+  if (lower.includes("courier") || lower.includes("mono"))
+    return "courier";
+  return "helvetica";
+}
+function parseColor(color) {
+  if (!color)
+    return null;
+  const hex = color.replace("#", "");
+  if (hex.length === 6) {
+    return {
+      r: parseInt(hex.substring(0, 2), 16),
+      g: parseInt(hex.substring(2, 4), 16),
+      b: parseInt(hex.substring(4, 6), 16)
+    };
+  }
+  const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (rgbMatch) {
+    return {
+      r: parseInt(rgbMatch[1]),
+      g: parseInt(rgbMatch[2]),
+      b: parseInt(rgbMatch[3])
+    };
+  }
+  return null;
+}
+function parseFontSize(size) {
+  if (!size)
+    return null;
+  const match = size.match(/(\d+(?:\.\d+)?)(pt|px)?/);
+  if (match) {
+    const value = parseFloat(match[1]);
+    const unit = match[2] || "pt";
+    return unit === "px" ? value * 0.75 : value;
+  }
+  return null;
+}
 async function exportPdf() {
   if (!state.editor)
     return;
@@ -45231,8 +45437,8 @@ async function exportPdf() {
     return;
   }
   if (state.isDirty) {
-    const confirm = window.confirm("You have unsaved changes. Save before exporting to ensure latest version?");
-    if (confirm) {
+    const confirmSave = window.confirm("You have unsaved changes. Save before exporting to ensure latest version?");
+    if (confirmSave) {
       await saveDocument();
     }
   }
@@ -45240,82 +45446,344 @@ async function exportPdf() {
   updateStatus("Generating PDF...", "saving");
   try {
     const { jsPDF } = await Promise.resolve().then(() => (init_jspdf_es_min(), exports_jspdf_es_min));
-    const doc3 = new jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: "a4"
-    });
     const title = elements2.docTitle.value || "Untitled Document";
     const content = state.editor.getJSON();
-    let y3 = 20;
-    const pageWidth = doc3.internal.pageSize.getWidth();
-    const margin = 20;
+    const pageSizeKey = elements2.pageSize?.value || "a4";
+    const pageSize = PAGE_SIZES[pageSizeKey] || PAGE_SIZES.a4;
+    const lineSpacing = parseFloat(elements2.lineSpacing?.value || "1.15");
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: [pageSize.width, pageSize.height]
+    });
+    const pageWidth = pageSize.width;
+    const pageHeight = pageSize.height;
+    const margin = PDF_MARGIN;
     const maxWidth = pageWidth - margin * 2;
-    const pageHeight = doc3.internal.pageSize.getHeight();
+    const baseFontSize = 11;
+    const baseLineHeight = baseFontSize * 0.38 * lineSpacing;
+    let y3 = margin;
+    let currentPage = 1;
     const checkPageBreak = (heightNeeded) => {
       if (y3 + heightNeeded > pageHeight - margin) {
-        doc3.addPage();
+        pdf.addPage([pageSize.width, pageSize.height]);
+        currentPage++;
         y3 = margin;
       }
     };
-    doc3.setFont("helvetica", "bold");
-    doc3.setFontSize(24);
-    doc3.text(title, margin, y3);
-    y3 += 15;
-    const nodes = content.content || [];
-    doc3.setFont("helvetica", "normal");
-    nodes.forEach((node2) => {
-      let fontSize = 12;
-      let fontStyle = "normal";
-      let lineHeight = 7;
-      let spacingAfter = 7;
-      if (node2.type === "heading") {
-        fontStyle = "bold";
-        if (node2.attrs?.level === 1) {
-          fontSize = 18;
-          lineHeight = 10;
-          spacingAfter = 10;
-        } else if (node2.attrs?.level === 2) {
-          fontSize = 16;
-          lineHeight = 9;
-          spacingAfter = 8;
-        } else {
-          fontSize = 14;
-          lineHeight = 8;
-          spacingAfter = 8;
+    const setFont = (family, bold, italic, size) => {
+      const pdfFont = mapFontFamily(family);
+      pdf.setFontSize(size);
+      if (bold && italic) {
+        pdf.setFont(pdfFont, "bolditalic");
+      } else if (bold) {
+        pdf.setFont(pdfFont, "bold");
+      } else if (italic) {
+        pdf.setFont(pdfFont, "italic");
+      } else {
+        pdf.setFont(pdfFont, "normal");
+      }
+    };
+    const extractSegments = (nodeContent) => {
+      if (!nodeContent || !Array.isArray(nodeContent))
+        return [];
+      const segments = [];
+      for (const item of nodeContent) {
+        if (item.type === "text" && item.text) {
+          const marks = item.marks || [];
+          let fontSize = null;
+          let fontFamily = null;
+          let color = null;
+          let highlight = null;
+          for (const mark of marks) {
+            if (mark.type === "textStyle") {
+              if (mark.attrs?.fontSize) {
+                fontSize = parseFontSize(mark.attrs.fontSize);
+              }
+              if (mark.attrs?.fontFamily) {
+                fontFamily = mark.attrs.fontFamily;
+              }
+              if (mark.attrs?.color) {
+                color = mark.attrs.color;
+              }
+            }
+            if (mark.type === "highlight" && mark.attrs?.color) {
+              highlight = mark.attrs.color;
+            }
+          }
+          segments.push({
+            text: item.text,
+            bold: marks.some((m4) => m4.type === "bold"),
+            italic: marks.some((m4) => m4.type === "italic"),
+            underline: marks.some((m4) => m4.type === "underline"),
+            strike: marks.some((m4) => m4.type === "strike"),
+            superscript: marks.some((m4) => m4.type === "superscript"),
+            subscript: marks.some((m4) => m4.type === "subscript"),
+            fontSize,
+            fontFamily,
+            color,
+            highlight
+          });
         }
-      } else if (node2.type === "paragraph") {
-        fontSize = 12;
-        fontStyle = "normal";
-        lineHeight = 6;
-        spacingAfter = 6;
       }
-      doc3.setFont("helvetica", fontStyle);
-      doc3.setFontSize(fontSize);
-      let text = "";
-      if (node2.content) {
-        text = node2.content.map((c4) => c4.text).join("");
+      return segments;
+    };
+    const getAlignedX = (align, textWidth, indent) => {
+      const effectiveWidth = maxWidth - indent;
+      switch (align) {
+        case "center":
+          return margin + indent + effectiveWidth / 2;
+        case "right":
+          return margin + indent + effectiveWidth;
+        default:
+          return margin + indent;
       }
-      if (!text && node2.type === "paragraph") {
-        y3 += lineHeight;
+    };
+    const getJsPdfAlign = (align) => {
+      if (align === "center")
+        return "center";
+      if (align === "right")
+        return "right";
+      return "left";
+    };
+    const renderSegments = (segments, align, indent = 0, defaultSize = baseFontSize, forceBold = false, prefix = "") => {
+      if (segments.length === 0 && !prefix) {
+        y3 += baseLineHeight * 0.5;
         return;
       }
-      const lines = doc3.splitTextToSize(text, maxWidth);
-      checkPageBreak(lines.length * lineHeight + spacingAfter);
-      doc3.text(lines, margin, y3);
-      y3 += lines.length * lineHeight + spacingAfter;
-    });
-    const filename = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
-    doc3.save(filename);
+      const effectiveWidth = maxWidth - indent;
+      const alignment = getJsPdfAlign(align);
+      const fullText = prefix + segments.map((s3) => s3.text).join("");
+      setFont(null, forceBold, false, defaultSize);
+      const lines = pdf.splitTextToSize(fullText, effectiveWidth);
+      let charIndex = 0;
+      const prefixLen = prefix.length;
+      for (const line of lines) {
+        checkPageBreak(baseLineHeight + 2);
+        let maxFontSize = defaultSize;
+        let lineCharStart = charIndex;
+        let lineCharEnd = charIndex + line.length;
+        if (charIndex === 0 && prefix) {
+          setFont(null, false, false, defaultSize);
+          pdf.setTextColor(0, 0, 0);
+          const prefixX = getAlignedX(align, pdf.getTextWidth(line), indent);
+          pdf.text(prefix, prefixX, y3, { align: alignment });
+        }
+        let currentX = getAlignedX(align, pdf.getTextWidth(line), indent);
+        if (alignment === "left" && charIndex === 0 && prefix) {
+          currentX += pdf.getTextWidth(prefix);
+        }
+        let segmentPos = 0;
+        for (const segment of segments) {
+          const segStart = prefixLen + segmentPos;
+          const segEnd = segStart + segment.text.length;
+          segmentPos += segment.text.length;
+          if (segEnd <= lineCharStart || segStart >= lineCharEnd) {
+            continue;
+          }
+          const overlapStart = Math.max(segStart, lineCharStart);
+          const overlapEnd = Math.min(segEnd, lineCharEnd);
+          const textInLine = fullText.substring(overlapStart, overlapEnd);
+          if (!textInLine)
+            continue;
+          const fontSize = segment.fontSize || defaultSize;
+          const fontFamily = segment.fontFamily;
+          const isBold = forceBold || segment.bold;
+          const isItalic = segment.italic;
+          setFont(fontFamily, isBold, isItalic, fontSize);
+          if (segment.color) {
+            const rgb = parseColor(segment.color);
+            if (rgb) {
+              pdf.setTextColor(rgb.r, rgb.g, rgb.b);
+            } else {
+              pdf.setTextColor(0, 0, 0);
+            }
+          } else {
+            pdf.setTextColor(0, 0, 0);
+          }
+          const textWidth = pdf.getTextWidth(textInLine);
+          if (segment.highlight) {
+            const rgb = parseColor(segment.highlight);
+            if (rgb) {
+              pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+              const rectHeight = fontSize * 0.4;
+              pdf.rect(currentX, y3 - rectHeight + 0.5, textWidth, rectHeight, "F");
+            }
+          }
+          let renderY = y3;
+          let renderSize = fontSize;
+          if (segment.subscript) {
+            renderY = y3 + fontSize * 0.15;
+            renderSize = fontSize * 0.7;
+            pdf.setFontSize(renderSize);
+          } else if (segment.superscript) {
+            renderY = y3 - fontSize * 0.2;
+            renderSize = fontSize * 0.7;
+            pdf.setFontSize(renderSize);
+          }
+          if (alignment === "left") {
+            pdf.text(textInLine, currentX, renderY);
+            currentX += textWidth;
+          }
+          if (segment.underline) {
+            const underlineY = renderY + 0.5;
+            pdf.setDrawColor(segment.color ? parseColor(segment.color)?.r || 0 : 0, segment.color ? parseColor(segment.color)?.g || 0 : 0, segment.color ? parseColor(segment.color)?.b || 0 : 0);
+            pdf.setLineWidth(0.2);
+            pdf.line(currentX - textWidth, underlineY, currentX, underlineY);
+          }
+          if (segment.strike) {
+            const strikeY = renderY - fontSize * 0.1;
+            pdf.setDrawColor(segment.color ? parseColor(segment.color)?.r || 0 : 0, segment.color ? parseColor(segment.color)?.g || 0 : 0, segment.color ? parseColor(segment.color)?.b || 0 : 0);
+            pdf.setLineWidth(0.2);
+            pdf.line(currentX - textWidth, strikeY, currentX, strikeY);
+          }
+          maxFontSize = Math.max(maxFontSize, fontSize);
+        }
+        if (alignment !== "left") {
+          const hasAnyBold = segments.some((s3) => s3.bold) || forceBold;
+          const hasAnyItalic = segments.some((s3) => s3.italic);
+          setFont(null, hasAnyBold, hasAnyItalic, defaultSize);
+          pdf.setTextColor(0, 0, 0);
+          const lineX = getAlignedX(align, pdf.getTextWidth(line), indent);
+          pdf.text(line, lineX, y3, { align: alignment });
+        }
+        y3 += maxFontSize * 0.38 * lineSpacing;
+        charIndex += line.length;
+        while (charIndex < fullText.length && fullText[charIndex] === " ") {
+          charIndex++;
+        }
+      }
+      y3 += baseLineHeight * 0.2;
+    };
+    const renderNode = (node2, listType, listIdx, indent = 0) => {
+      if (!node2)
+        return;
+      const textAlign = node2.attrs?.textAlign;
+      switch (node2.type) {
+        case "heading": {
+          const level = node2.attrs?.level || 1;
+          const fontSize = level === 1 ? 24 : level === 2 ? 18 : 14;
+          const segments = extractSegments(node2.content);
+          if (segments.length > 0 || node2.content?.length) {
+            y3 += baseLineHeight * 0.6;
+            renderSegments(segments, textAlign, indent, fontSize, true);
+            y3 += baseLineHeight * 0.3;
+          }
+          break;
+        }
+        case "paragraph": {
+          const segments = extractSegments(node2.content);
+          let prefix = "";
+          if (listType === "bullet") {
+            prefix = "  • ";
+          } else if (listType === "ordered" && listIdx !== undefined) {
+            prefix = `  ${listIdx}. `;
+          }
+          renderSegments(segments, textAlign, indent, baseFontSize, false, prefix);
+          break;
+        }
+        case "bulletList": {
+          (node2.content || []).forEach((item) => {
+            renderNode(item, "bullet", undefined, indent);
+          });
+          break;
+        }
+        case "orderedList": {
+          (node2.content || []).forEach((item, idx) => {
+            renderNode(item, "ordered", idx + 1, indent);
+          });
+          break;
+        }
+        case "listItem": {
+          (node2.content || []).forEach((child) => {
+            renderNode(child, listType, listIdx, indent + 6);
+          });
+          break;
+        }
+        case "blockquote": {
+          y3 += baseLineHeight * 0.3;
+          const startY = y3;
+          (node2.content || []).forEach((child) => {
+            const segments = extractSegments(child.content);
+            const italicSegments = segments.map((s3) => ({
+              ...s3,
+              italic: true
+            }));
+            renderSegments(italicSegments, child.attrs?.textAlign, indent + 8, baseFontSize);
+          });
+          pdf.setDrawColor(180, 180, 180);
+          pdf.setLineWidth(0.5);
+          pdf.line(margin + indent + 3, startY - 2, margin + indent + 3, y3 - 2);
+          y3 += baseLineHeight * 0.3;
+          break;
+        }
+        case "horizontalRule": {
+          checkPageBreak(10);
+          y3 += baseLineHeight * 0.5;
+          pdf.setDrawColor(200, 200, 200);
+          pdf.setLineWidth(0.3);
+          pdf.line(margin, y3, pageWidth - margin, y3);
+          y3 += baseLineHeight * 0.5;
+          break;
+        }
+        case "codeBlock": {
+          const segments = extractSegments(node2.content);
+          const codeText = segments.map((s3) => s3.text).join("");
+          if (codeText) {
+            y3 += baseLineHeight * 0.3;
+            const codeLines = codeText.split(`
+`);
+            const bgHeight = codeLines.length * 3.5 + 4;
+            checkPageBreak(bgHeight);
+            pdf.setFillColor(245, 245, 245);
+            pdf.rect(margin + indent, y3 - 3, maxWidth - indent, bgHeight, "F");
+            pdf.setFont("courier", "normal");
+            pdf.setFontSize(9);
+            pdf.setTextColor(50, 50, 50);
+            for (const codeLine of codeLines) {
+              const wrapped = pdf.splitTextToSize(codeLine || " ", maxWidth - indent - 10);
+              for (const wl of wrapped) {
+                checkPageBreak(4);
+                pdf.text(wl, margin + indent + 3, y3);
+                y3 += 3.5;
+              }
+            }
+            y3 += baseLineHeight * 0.3;
+            pdf.setTextColor(0, 0, 0);
+            setFont(null, false, false, baseFontSize);
+          }
+          break;
+        }
+        default:
+          if (node2.content && Array.isArray(node2.content)) {
+            node2.content.forEach((child) => {
+              renderNode(child, listType, listIdx, indent);
+            });
+          }
+      }
+    };
+    const docContent = content.content || [];
+    for (const node2 of docContent) {
+      renderNode(node2);
+    }
+    const safeFilename = title.replace(/[^a-zA-Z0-9\s-]/g, "_").replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "document";
+    pdf.save(`${safeFilename}.pdf`);
     updateStatus("PDF exported", "saved");
   } catch (error) {
     console.error("PDF export error:", error);
     updateStatus("PDF export failed", "error");
+    alert(`PDF export failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     setLoading(false);
   }
 }
 function setupToolbar() {
+  elements2.toolbar.addEventListener("wheel", (e2) => {
+    if (elements2.toolbar.scrollWidth > elements2.toolbar.clientWidth) {
+      e2.preventDefault();
+      elements2.toolbar.scrollLeft += e2.deltaY;
+    }
+  }, { passive: false });
   elements2.toolbar.addEventListener("click", (e2) => {
     const btn = e2.target.closest(".toolbar-btn");
     if (!btn || !state.editor)
@@ -45477,6 +45945,8 @@ function setupVoiceInput() {
   if (!state.voiceInput.isSupported()) {
     elements2.btnVoice.disabled = true;
     elements2.btnVoice.title = "Voice input not supported in this browser";
+    elements2.btnVoice.style.opacity = "0.5";
+    elements2.btnVoice.style.cursor = "not-allowed";
   }
 }
 function toggleVoiceInput() {
@@ -45486,7 +45956,12 @@ function toggleVoiceInput() {
 }
 function setupEventHandlers() {
   elements2.btnSave.addEventListener("click", () => saveDocument(false));
-  elements2.btnNew.addEventListener("click", createNewDocument);
+  elements2.btnNew.addEventListener("click", () => {
+    createNewDocument();
+    if (window.innerWidth <= 768) {
+      toggleSidebar(false);
+    }
+  });
   elements2.btnExport.addEventListener("click", exportPdf);
   elements2.editorEl.addEventListener("click", (e2) => {
     if (e2.target === elements2.editorEl) {
@@ -45557,15 +46032,26 @@ function setupEventHandlers() {
       e2.returnValue = "";
     }
   });
+  if (elements2.btnMenu) {
+    elements2.btnMenu.addEventListener("click", () => toggleSidebar());
+  }
+  if (elements2.sidebarOverlay) {
+    elements2.sidebarOverlay.addEventListener("click", () => toggleSidebar(false));
+  }
 }
 async function init() {
   console.log("[Smart Office] Initializing...");
+  let lastWordCountUpdate = 0;
   state.editor = new DocumentEditor({
     element: elements2.editorEl,
     placeholder: "Start typing or use voice input...",
     onUpdate: () => {
       markDirty();
-      updateWordCount();
+      const now = Date.now();
+      if (now - lastWordCountUpdate > 500) {
+        updateWordCount();
+        lastWordCountUpdate = now;
+      }
       updateToolbarState();
     }
   });
@@ -45574,6 +46060,30 @@ async function init() {
   setupEventHandlers();
   updateDeleteButton();
   await Promise.all([loadDocuments(), loadTemplates()]);
+  const draft = loadDraft();
+  if (draft) {
+    const ageMs = Date.now() - draft.timestamp;
+    const ageMinutes = Math.floor(ageMs / 60000);
+    const ageDisplay = ageMinutes < 1 ? "less than a minute" : ageMinutes === 1 ? "1 minute" : `${ageMinutes} minutes`;
+    const restore = window.confirm(`You have an unsaved draft from ${ageDisplay} ago.
+
+Title: "${draft.title}"
+
+Would you like to restore it?`);
+    if (restore) {
+      elements2.docTitle.value = draft.title;
+      if (state.editor && isValidTipTapContent(draft.content)) {
+        state.editor.setContent(draft.content);
+      }
+      state.isDirty = true;
+      updateStatus("Draft restored - remember to save!");
+      updateWordCount();
+      console.log("[Smart Office] Draft restored from localStorage");
+    } else {
+      clearDraft();
+      console.log("[Smart Office] Draft discarded");
+    }
+  }
   updateStatus("Ready");
   updateWordCount();
   console.log("[Smart Office] Ready!");

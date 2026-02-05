@@ -21,7 +21,9 @@
     "@tiptap/extension-underline": "^3.19.0",
     "@tiptap/pm": "^2.2.0",
     "@tiptap/starter-kit": "^2.2.0",
+    "@types/html2canvas": "^1.0.0",
     "hono": "^4.0.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^2.5.0"
   },
   "devDependencies": {

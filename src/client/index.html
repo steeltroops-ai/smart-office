@@ -26,6 +26,25 @@
       <!-- ========== HEADER ========== -->
       <header id="header">
         <div class="header-left">
+          <button
+            id="btn-menu"
+            class="btn-menu mobile-only"
+            aria-label="Toggle Menu"
+            title="Open Menu"
+          >
+            <svg
+              class="menu-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            >
+              <line x1="4" y1="6" x2="20" y2="6"></line>
+              <line x1="4" y1="12" x2="20" y2="12"></line>
+              <line x1="4" y1="18" x2="20" y2="18"></line>
+            </svg>
+          </button>
           <div class="logo">
             <svg
               class="logo-icon"
@@ -72,7 +91,7 @@
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
             </svg>
-            Save
+            <span>Save</span>
           </button>
           <button
             id="btn-delete"
@@ -94,7 +113,7 @@
               <line x1="10" y1="11" x2="10" y2="17"></line>
               <line x1="14" y1="11" x2="14" y2="17"></line>
             </svg>
-            Delete
+            <span>Delete</span>
           </button>
           <button id="btn-export" class="btn">
             <svg
@@ -108,13 +127,16 @@
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            Export PDF
+            <span>Export PDF</span>
           </button>
         </div>
       </header>
 
       <!-- ========== MAIN CONTENT ========== -->
       <main id="main">
+        <!-- Sidebar and Menu Overlay -->
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
         <!-- ===== SIDEBAR ===== -->
         <aside id="sidebar">
           <div class="sidebar-section">
@@ -190,6 +212,33 @@
                 <option value="48px">48</option>
                 <option value="72px">72</option>
               </select>
+            </div>
+
+            <div class="toolbar-separator"></div>
+
+            <!-- Voice Input Button - Prominent placement -->
+            <div class="toolbar-group">
+              <button
+                id="btn-voice"
+                class="toolbar-btn toolbar-btn-voice"
+                data-command="voice"
+                title="Voice Input (Click to dictate)"
+              >
+                <svg
+                  class="toolbar-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
             </div>
 
             <div class="toolbar-separator"></div>
@@ -445,32 +494,6 @@
                   <path d="M4 6h1v4" />
                   <path d="M4 10h2" />
                   <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
-                </svg>
-              </button>
-            </div>
-
-            <div class="toolbar-separator"></div>
-
-            <div class="toolbar-group">
-              <button
-                id="btn-voice"
-                class="toolbar-btn"
-                data-command="voice"
-                title="Voice Input"
-              >
-                <svg
-                  class="toolbar-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
-                  />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="23" />
-                  <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
               </button>
             </div>

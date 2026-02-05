@@ -7,6 +7,7 @@ import {
   templateApi,
   type DocumentSummary,
   type Template,
+  type DocumentSettings,
 } from "./api";
 import { VoiceInput } from "./voice";
 
@@ -52,6 +53,9 @@ const elements = {
   lineSpacing: document.getElementById("line-spacing") as HTMLSelectElement,
   fontFamily: document.getElementById("font-family") as HTMLSelectElement,
   fontSize: document.getElementById("font-size") as HTMLSelectElement,
+  btnMenu: document.getElementById("btn-menu") as HTMLButtonElement,
+  sidebar: document.getElementById("sidebar") as HTMLElement,
+  sidebarOverlay: document.getElementById("sidebar-overlay") as HTMLElement,
 };
 
 // ============ UI Helpers ============
@@ -98,14 +102,19 @@ function markDirty(): void {
     updateDeleteButton();
   }
 
-  // Auto-save logic
-  // Only auto-save if we have a valid Doc ID (don't create new files automatically)
-  if (state.currentDocId) {
-    if (state.autoSaveTimer) clearTimeout(state.autoSaveTimer);
+  // Clear existing timer
+  if (state.autoSaveTimer) clearTimeout(state.autoSaveTimer);
 
-    // Debounce save for 2 seconds
+  if (state.currentDocId) {
+    // Auto-save for existing documents
     state.autoSaveTimer = setTimeout(() => {
       saveDocument(true); // true = silent/auto save
+    }, 2000);
+  } else {
+    // Save draft for new unsaved documents (prevents data loss)
+    state.autoSaveTimer = setTimeout(() => {
+      saveDraft();
+      updateStatus("Draft saved locally");
     }, 2000);
   }
 }
@@ -117,6 +126,146 @@ function updateDeleteButton(): void {
       ? "inline-flex"
       : "none";
   }
+}
+
+// ============ Auto-save Timer Management ============
+
+/**
+ * Clear any pending auto-save timer to prevent race conditions
+ * Call this before switching documents or starting manual save
+ */
+function clearAutoSaveTimer(): void {
+  if (state.autoSaveTimer) {
+    clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = null;
+  }
+}
+
+// ============ Mobile Sidebar Management ============
+
+function toggleSidebar(forceState?: boolean): void {
+  const isOpen =
+    forceState !== undefined
+      ? forceState
+      : elements.sidebar.classList.contains("open");
+
+  if (isOpen) {
+    elements.sidebar.classList.remove("open");
+    elements.sidebarOverlay.classList.remove("active");
+  } else {
+    elements.sidebar.classList.add("open");
+    elements.sidebarOverlay.classList.add("active");
+  }
+}
+
+// ============ Draft Storage for New Documents ============
+
+const DRAFT_KEY = "smart-office-draft";
+
+interface Draft {
+  title: string;
+  content: object;
+  timestamp: number;
+}
+
+/**
+ * Save current unsaved document as a draft to localStorage
+ * Only saves if there's actual content worth preserving
+ */
+function saveDraft(): void {
+  if (!state.currentDocId && state.editor) {
+    const title = elements.docTitle.value || "Untitled Document";
+    const content = state.editor.getJSON();
+    const charCount = state.editor.getCharacterCount();
+
+    // Only save if there's actual content or a custom title
+    if (charCount > 0 || (title !== "Untitled Document" && title !== "")) {
+      const draft: Draft = {
+        title,
+        content,
+        timestamp: Date.now(),
+      };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        console.log("[Smart Office] Draft saved to localStorage");
+      } catch (e) {
+        console.warn("[Smart Office] Failed to save draft:", e);
+      }
+    }
+  }
+}
+
+/**
+ * Load draft from localStorage if it exists
+ */
+function loadDraft(): Draft | null {
+  try {
+    const data = localStorage.getItem(DRAFT_KEY);
+    if (data) {
+      return JSON.parse(data) as Draft;
+    }
+  } catch (e) {
+    console.warn("[Smart Office] Failed to load draft:", e);
+  }
+  return null;
+}
+
+/**
+ * Clear draft from localStorage
+ */
+function clearDraft(): void {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch (e) {
+    // Ignore errors
+  }
+}
+
+// ============ Content Validation ============
+
+/**
+ * Validate TipTap content structure to prevent crashes on load
+ */
+function isValidTipTapContent(content: any): boolean {
+  if (!content || typeof content !== "object") return false;
+  if (content.type !== "doc") return false;
+  // content.content can be undefined for empty docs, but if present must be array
+  if (content.content !== undefined && !Array.isArray(content.content))
+    return false;
+  return true;
+}
+
+// ============ Unsaved Changes Handler ============
+
+/**
+ * Smart handler for unsaved changes when switching context
+ * Returns: 'proceed' if user wants to continue, 'cancel' if user wants to stay
+ */
+async function handleUnsavedChanges(): Promise<"proceed" | "cancel"> {
+  if (!state.isDirty) return "proceed";
+
+  // First prompt: offer to save
+  const wantToSave = window.confirm(
+    "You have unsaved changes.\n\n" +
+      "Click OK to save before continuing, or Cancel to choose another option.",
+  );
+
+  if (wantToSave) {
+    await saveDocument(false);
+    // Check if save succeeded
+    if (!state.isDirty) {
+      return "proceed";
+    }
+    // Save failed - inform user
+    const discardAnyway = window.confirm(
+      "Save failed. Discard your changes and continue anyway?",
+    );
+    return discardAnyway ? "proceed" : "cancel";
+  }
+
+  // User didn't want to save - ask about discarding
+  const discardChanges = window.confirm("Discard your unsaved changes?");
+  return discardChanges ? "proceed" : "cancel";
 }
 
 function setLoading(loading: boolean): void {
@@ -174,7 +323,13 @@ function renderDocumentList(documents: DocumentSummary[]): void {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = (btn as HTMLElement).dataset.id;
-      if (id) loadDocument(id);
+      if (id) {
+        loadDocument(id);
+        // Close sidebar on mobile after selection
+        if (window.innerWidth <= 768) {
+          toggleSidebar(false);
+        }
+      }
     });
   });
 
@@ -220,7 +375,13 @@ function renderTemplateList(templates: Template[]): void {
   elements.templateList.querySelectorAll(".template-item").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = (btn as HTMLElement).dataset.id;
-      if (id) loadTemplate(id);
+      if (id) {
+        loadTemplate(id);
+        // Close sidebar on mobile after selection
+        if (window.innerWidth <= 768) {
+          toggleSidebar(false);
+        }
+      }
     });
   });
 }
@@ -229,6 +390,44 @@ function escapeHtml(text: string): string {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ============ Document Settings Helpers ============
+
+/**
+ * Apply page size to the editor element
+ * Note: Classes are applied to #editor element to match CSS selectors
+ */
+function applyPageSize(size: string): void {
+  // Apply class directly to #editor element (matches CSS: #editor.page-a4, etc.)
+  elements.editorEl.classList.remove(
+    "page-a4",
+    "page-letter",
+    "page-legal",
+    "page-a5",
+  );
+  elements.editorEl.classList.add(`page-${size}`);
+}
+
+/**
+ * Apply line spacing to the editor content
+ */
+function applyLineSpacing(spacing: number): void {
+  const proseMirror = elements.editorEl.querySelector(".ProseMirror");
+  if (proseMirror) {
+    (proseMirror as HTMLElement).style.lineHeight = spacing.toString();
+  }
+}
+
+/**
+ * Get current document settings from UI
+ */
+function getCurrentSettings(): DocumentSettings {
+  return {
+    pageSize: (elements.pageSize?.value ||
+      "a4") as DocumentSettings["pageSize"],
+    lineSpacing: parseFloat(elements.lineSpacing?.value || "1.15"),
+  };
 }
 
 // ============ Document Operations ============
@@ -244,13 +443,12 @@ async function loadTemplates(): Promise<void> {
 }
 
 async function loadDocument(id: string): Promise<void> {
-  // Check for unsaved changes
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm(
-      "You have unsaved changes. Discard them?",
-    );
-    if (!confirmDiscard) return;
-  }
+  // Clear pending auto-save to prevent saving to wrong document
+  clearAutoSaveTimer();
+
+  // Handle unsaved changes with save option
+  const action = await handleUnsavedChanges();
+  if (action === "cancel") return;
 
   setLoading(true);
   updateStatus("Loading...", "saving");
@@ -261,11 +459,40 @@ async function loadDocument(id: string): Promise<void> {
       state.currentDocId = doc.id;
       elements.docTitle.value = doc.title;
 
+      // Validate and set content with error handling
       if (state.editor && doc.content) {
-        state.editor.setContent(doc.content);
+        if (isValidTipTapContent(doc.content)) {
+          try {
+            state.editor.setContent(doc.content);
+          } catch (e) {
+            console.error("Failed to set document content:", e);
+            updateStatus("Content error, using empty document", "error");
+            state.editor.clear();
+          }
+        } else {
+          console.warn(
+            "Invalid document content structure, using empty document",
+          );
+          state.editor.clear();
+        }
+      } else if (state.editor) {
+        state.editor.clear();
+      }
+
+      // Apply document settings (page size, line spacing)
+      if (doc.settings) {
+        if (doc.settings.pageSize && elements.pageSize) {
+          elements.pageSize.value = doc.settings.pageSize;
+          applyPageSize(doc.settings.pageSize);
+        }
+        if (doc.settings.lineSpacing && elements.lineSpacing) {
+          elements.lineSpacing.value = doc.settings.lineSpacing.toString();
+          applyLineSpacing(doc.settings.lineSpacing);
+        }
       }
 
       state.isDirty = false;
+      clearDraft(); // Clear any draft since we loaded a saved doc
       updateStatus("Loaded", "saved");
       updateWordCount();
       updateDeleteButton();
@@ -283,13 +510,12 @@ async function loadDocument(id: string): Promise<void> {
 
 // Load template content into editor WITHOUT saving
 async function loadTemplate(templateId: string): Promise<void> {
-  // Check for unsaved changes
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm(
-      "You have unsaved changes. Discard them?",
-    );
-    if (!confirmDiscard) return;
-  }
+  // Clear pending auto-save to prevent saving to wrong document
+  clearAutoSaveTimer();
+
+  // Handle unsaved changes with save option
+  const action = await handleUnsavedChanges();
+  if (action === "cancel") return;
 
   setLoading(true);
   updateStatus("Loading template...", "saving");
@@ -306,6 +532,7 @@ async function loadTemplate(templateId: string): Promise<void> {
       }
 
       state.isDirty = true; // Mark as dirty since it's unsaved
+      clearDraft(); // Clear any previous draft
       updateStatus("Template loaded - click Save to create document");
       updateWordCount();
       updateDeleteButton();
@@ -329,7 +556,10 @@ async function loadTemplate(templateId: string): Promise<void> {
   }
 }
 
-async function saveDocument(isAutoSave = false): Promise<void> {
+async function saveDocument(isAutoSave = false, retryCount = 0): Promise<void> {
+  // Clear pending auto-save timer to prevent race conditions
+  clearAutoSaveTimer();
+
   if (state.isSaving || state.isLoading) return;
 
   state.isSaving = true;
@@ -352,7 +582,20 @@ async function saveDocument(isAutoSave = false): Promise<void> {
     return;
   }
 
+  // Validation: Warn when saving an existing document that is empty (SE-001)
+  if (!isAutoSave && state.currentDocId && isContentEmpty) {
+    const confirmSave = window.confirm(
+      "This document is empty. Are you sure you want to save it?",
+    );
+    if (!confirmSave) {
+      state.isSaving = false;
+      setLoading(false);
+      return;
+    }
+  }
+
   const finalTitle = title || "Untitled Document";
+  const settings = getCurrentSettings();
 
   try {
     let doc;
@@ -360,42 +603,61 @@ async function saveDocument(isAutoSave = false): Promise<void> {
       doc = await documentApi.update(state.currentDocId, {
         title: finalTitle,
         content,
+        settings,
       });
     } else {
-      doc = await documentApi.create({ title: finalTitle, content });
+      doc = await documentApi.create({ title: finalTitle, content, settings });
     }
 
     if (doc) {
       state.currentDocId = doc.id;
       state.isDirty = false;
+      clearDraft(); // Clear draft after successful save
       updateStatus("Saved", "saved");
       updateDeleteButton();
       await loadDocuments();
     } else {
-      updateStatus("Save failed", "error");
+      throw new Error("Save failed (api returned null)");
     }
   } catch (error) {
     console.error("Save error:", error);
+
+    // Auto-save retry logic (AS-002)
+    if (isAutoSave && retryCount < 2) {
+      const nextDelay = 1000 * (retryCount + 1);
+      console.warn(`Auto-save failed, retrying in ${nextDelay}ms...`);
+
+      state.isSaving = false; // Reset flag to allow retry
+
+      setTimeout(() => {
+        saveDocument(true, retryCount + 1);
+      }, nextDelay);
+      return;
+    }
+
     updateStatus("Save failed", "error");
   } finally {
-    state.isSaving = false;
-    if (!isAutoSave) setLoading(false);
+    // Only reset if we are NOT retrying, or if we exhausted retries
+    if (!isAutoSave || retryCount >= 2) {
+      state.isSaving = false;
+      if (!isAutoSave) setLoading(false);
+    }
   }
 }
 
 async function createNewDocument(): Promise<void> {
-  // Check for unsaved changes
-  if (state.isDirty) {
-    const confirmDiscard = window.confirm(
-      "You have unsaved changes. Discard them?",
-    );
-    if (!confirmDiscard) return;
-  }
+  // Clear pending auto-save timer
+  clearAutoSaveTimer();
+
+  // Handle unsaved changes with save option
+  const action = await handleUnsavedChanges();
+  if (action === "cancel") return;
 
   state.currentDocId = null;
   elements.docTitle.value = "";
   state.editor?.clear();
   state.isDirty = false;
+  clearDraft(); // Clear any saved draft
   updateStatus("New document");
   updateWordCount();
   updateDeleteButton();
@@ -449,21 +711,108 @@ async function deleteCurrentDocument(): Promise<void> {
 
 // ============ PDF Export ============
 
+/**
+ * Page size configurations (width x height in mm)
+ */
+const PAGE_SIZES: Record<string, { width: number; height: number }> = {
+  a4: { width: 210, height: 297 },
+  a5: { width: 148, height: 210 },
+  letter: { width: 215.9, height: 279.4 },
+  legal: { width: 215.9, height: 355.6 },
+};
+
+const PDF_MARGIN = 25.4; // 1 inch in mm
+
+/**
+ * Interface for text segments with ALL formatting properties
+ */
+interface TextSegment {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  superscript: boolean;
+  subscript: boolean;
+  fontSize: number | null; // Custom font size in pt, null = default
+  fontFamily: string | null;
+  color: string | null; // Hex color
+  highlight: string | null; // Highlight background color
+}
+
+/**
+ * Map TipTap font family to jsPDF font
+ * jsPDF only supports: helvetica, times, courier
+ */
+function mapFontFamily(fontFamily: string | null): string {
+  if (!fontFamily) return "helvetica";
+  const lower = fontFamily.toLowerCase();
+  if (lower.includes("times") || lower.includes("serif")) return "times";
+  if (lower.includes("courier") || lower.includes("mono")) return "courier";
+  return "helvetica";
+}
+
+/**
+ * Parse hex color string to RGB
+ */
+function parseColor(
+  color: string | null,
+): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  // Handle hex colors
+  const hex = color.replace("#", "");
+  if (hex.length === 6) {
+    return {
+      r: parseInt(hex.substring(0, 2), 16),
+      g: parseInt(hex.substring(2, 4), 16),
+      b: parseInt(hex.substring(4, 6), 16),
+    };
+  }
+  // Handle rgb() format
+  const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (rgbMatch) {
+    return {
+      r: parseInt(rgbMatch[1]),
+      g: parseInt(rgbMatch[2]),
+      b: parseInt(rgbMatch[3]),
+    };
+  }
+  return null;
+}
+
+/**
+ * Parse font size string (e.g., "14pt", "16px") to points
+ */
+function parseFontSize(size: string | null | undefined): number | null {
+  if (!size) return null;
+  const match = size.match(/(\d+(?:\.\d+)?)(pt|px)?/);
+  if (match) {
+    const value = parseFloat(match[1]);
+    const unit = match[2] || "pt";
+    // Convert px to pt (1px = 0.75pt approximately)
+    return unit === "px" ? value * 0.75 : value;
+  }
+  return null;
+}
+
+/**
+ * Export document to PDF with COMPLETE FORMATTING SUPPORT
+ * Supports: alignment, font sizes, bold, italic, underline, strike,
+ * colors, highlights, subscript, superscript
+ */
 async function exportPdf(): Promise<void> {
   if (!state.editor) return;
 
-  // 1. Validation: Check if empty
   if (state.editor.getCharacterCount() === 0) {
     alert("Cannot export an empty document. Please add some text first.");
     return;
   }
 
-  // 2. Validation: Ensure saved (optional, but good practice per user request)
   if (state.isDirty) {
-    const confirm = window.confirm(
+    const confirmSave = window.confirm(
       "You have unsaved changes. Save before exporting to ensure latest version?",
     );
-    if (confirm) {
+    if (confirmSave) {
       await saveDocument();
     }
   }
@@ -474,107 +823,512 @@ async function exportPdf(): Promise<void> {
   try {
     const { jsPDF } = await import("jspdf");
 
-    const doc = new jsPDF({
+    const title = elements.docTitle.value || "Untitled Document";
+    const content = state.editor.getJSON() as any;
+
+    // Get page size and line spacing from settings
+    const pageSizeKey = elements.pageSize?.value || "a4";
+    const pageSize = PAGE_SIZES[pageSizeKey] || PAGE_SIZES.a4;
+    const lineSpacing = parseFloat(elements.lineSpacing?.value || "1.15");
+
+    // Create PDF
+    const pdf = new jsPDF({
       orientation: "portrait",
       unit: "mm",
-      format: "a4",
+      format: [pageSize.width, pageSize.height],
     });
 
-    const title = elements.docTitle.value || "Untitled Document";
-    const content = state.editor.getJSON(); // Get structure, not just text
-
-    // Document setup
-    let y = 20;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 20;
+    const pageWidth = pageSize.width;
+    const pageHeight = pageSize.height;
+    const margin = PDF_MARGIN;
     const maxWidth = pageWidth - margin * 2;
-    const pageHeight = doc.internal.pageSize.getHeight();
+    const baseFontSize = 11; // Default body font size in pt
+    const baseLineHeight = baseFontSize * 0.38 * lineSpacing; // Line height in mm
 
-    // Helper to check page break
-    const checkPageBreak = (heightNeeded: number) => {
+    let y = margin;
+    let currentPage = 1;
+
+    // ========== HELPER FUNCTIONS ==========
+
+    /**
+     * Check if we need a page break
+     */
+    const checkPageBreak = (heightNeeded: number): void => {
       if (y + heightNeeded > pageHeight - margin) {
-        doc.addPage();
+        pdf.addPage([pageSize.width, pageSize.height]);
+        currentPage++;
         y = margin;
       }
     };
 
-    // Render Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(24);
-    doc.text(title, margin, y);
-    y += 15;
+    /**
+     * Set font style in PDF
+     */
+    const setFont = (
+      family: string | null,
+      bold: boolean,
+      italic: boolean,
+      size: number,
+    ): void => {
+      const pdfFont = mapFontFamily(family);
+      pdf.setFontSize(size);
+      if (bold && italic) {
+        pdf.setFont(pdfFont, "bolditalic");
+      } else if (bold) {
+        pdf.setFont(pdfFont, "bold");
+      } else if (italic) {
+        pdf.setFont(pdfFont, "italic");
+      } else {
+        pdf.setFont(pdfFont, "normal");
+      }
+    };
 
-    // Render Content Nodes
-    // Note: This is a simplified renderer for POC.
-    // It handles Headings and Paragraphs.
+    /**
+     * Extract all text segments with formatting from node content
+     */
+    const extractSegments = (nodeContent: any[] | undefined): TextSegment[] => {
+      if (!nodeContent || !Array.isArray(nodeContent)) return [];
 
-    // cast content to any to access content array
-    const nodes = (content as any).content || [];
+      const segments: TextSegment[] = [];
 
-    doc.setFont("helvetica", "normal");
+      for (const item of nodeContent) {
+        if (item.type === "text" && item.text) {
+          const marks = item.marks || [];
 
-    nodes.forEach((node: any) => {
-      let fontSize = 12;
-      let fontStyle = "normal";
-      let lineHeight = 7;
-      let spacingAfter = 7;
+          // Extract all formatting from marks
+          let fontSize: number | null = null;
+          let fontFamily: string | null = null;
+          let color: string | null = null;
+          let highlight: string | null = null;
 
-      // Detect styles based on node type
-      if (node.type === "heading") {
-        fontStyle = "bold";
-        if (node.attrs?.level === 1) {
-          fontSize = 18;
-          lineHeight = 10;
-          spacingAfter = 10;
-        } else if (node.attrs?.level === 2) {
-          fontSize = 16;
-          lineHeight = 9;
-          spacingAfter = 8;
-        } else {
-          fontSize = 14;
-          lineHeight = 8;
-          spacingAfter = 8;
+          for (const mark of marks) {
+            if (mark.type === "textStyle") {
+              if (mark.attrs?.fontSize) {
+                fontSize = parseFontSize(mark.attrs.fontSize);
+              }
+              if (mark.attrs?.fontFamily) {
+                fontFamily = mark.attrs.fontFamily;
+              }
+              if (mark.attrs?.color) {
+                color = mark.attrs.color;
+              }
+            }
+            if (mark.type === "highlight" && mark.attrs?.color) {
+              highlight = mark.attrs.color;
+            }
+          }
+
+          segments.push({
+            text: item.text,
+            bold: marks.some((m: any) => m.type === "bold"),
+            italic: marks.some((m: any) => m.type === "italic"),
+            underline: marks.some((m: any) => m.type === "underline"),
+            strike: marks.some((m: any) => m.type === "strike"),
+            superscript: marks.some((m: any) => m.type === "superscript"),
+            subscript: marks.some((m: any) => m.type === "subscript"),
+            fontSize,
+            fontFamily,
+            color,
+            highlight,
+          });
         }
-      } else if (node.type === "paragraph") {
-        fontSize = 12;
-        fontStyle = "normal";
-        lineHeight = 6;
-        spacingAfter = 6;
       }
 
-      // Set styles
-      doc.setFont("helvetica", fontStyle);
-      doc.setFontSize(fontSize);
+      return segments;
+    };
 
-      // Get text content
-      let text = "";
-      if (node.content) {
-        text = node.content.map((c: any) => c.text).join("");
+    /**
+     * Get X position based on alignment
+     */
+    const getAlignedX = (
+      align: string | undefined,
+      textWidth: number,
+      indent: number,
+    ): number => {
+      const effectiveWidth = maxWidth - indent;
+      switch (align) {
+        case "center":
+          return margin + indent + effectiveWidth / 2;
+        case "right":
+          return margin + indent + effectiveWidth;
+        default:
+          return margin + indent;
       }
+    };
 
-      // Skip empty paragraphs unless explicitly needed
-      if (!text && node.type === "paragraph") {
-        y += lineHeight; // Small gap for empty line
+    /**
+     * Get jsPDF alignment option
+     */
+    const getJsPdfAlign = (
+      align: string | undefined,
+    ): "left" | "center" | "right" => {
+      if (align === "center") return "center";
+      if (align === "right") return "right";
+      return "left";
+    };
+
+    /**
+     * Render text segments with full formatting support
+     */
+    const renderSegments = (
+      segments: TextSegment[],
+      align: string | undefined,
+      indent: number = 0,
+      defaultSize: number = baseFontSize,
+      forceBold: boolean = false,
+      prefix: string = "",
+    ): void => {
+      if (segments.length === 0 && !prefix) {
+        y += baseLineHeight * 0.5;
         return;
       }
 
-      // Basic Word Wrap
-      const lines = doc.splitTextToSize(text, maxWidth);
+      const effectiveWidth = maxWidth - indent;
+      const alignment = getJsPdfAlign(align);
 
-      checkPageBreak(lines.length * lineHeight + spacingAfter);
+      // Build the full text for word wrapping
+      const fullText = prefix + segments.map((s) => s.text).join("");
 
-      doc.text(lines, margin, y);
-      y += lines.length * lineHeight + spacingAfter;
-    });
+      // For simplicity with mixed formatting, we render line by line
+      // First, calculate wrapped lines
+      setFont(null, forceBold, false, defaultSize);
+      const lines = pdf.splitTextToSize(fullText, effectiveWidth);
 
-    // Save the PDF
-    const filename = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
-    doc.save(filename);
+      // Track position in original text
+      let charIndex = 0;
+      const prefixLen = prefix.length;
 
+      for (const line of lines) {
+        checkPageBreak(baseLineHeight + 2);
+
+        // Calculate line height based on largest font in this line
+        let maxFontSize = defaultSize;
+        let lineCharStart = charIndex;
+        let lineCharEnd = charIndex + line.length;
+
+        // For prefix on first line
+        if (charIndex === 0 && prefix) {
+          // Draw prefix first
+          setFont(null, false, false, defaultSize);
+          pdf.setTextColor(0, 0, 0);
+          const prefixX = getAlignedX(align, pdf.getTextWidth(line), indent);
+          pdf.text(prefix, prefixX, y, { align: alignment });
+        }
+
+        // Find segments that overlap this line
+        let currentX = getAlignedX(align, pdf.getTextWidth(line), indent);
+        if (alignment === "left" && charIndex === 0 && prefix) {
+          currentX += pdf.getTextWidth(prefix);
+        }
+
+        // Determine which segments are in this line
+        let segmentPos = 0;
+        for (const segment of segments) {
+          const segStart = prefixLen + segmentPos;
+          const segEnd = segStart + segment.text.length;
+          segmentPos += segment.text.length;
+
+          // Check if this segment overlaps with current line
+          if (segEnd <= lineCharStart || segStart >= lineCharEnd) {
+            continue; // No overlap
+          }
+
+          // Calculate the portion of segment in this line
+          const overlapStart = Math.max(segStart, lineCharStart);
+          const overlapEnd = Math.min(segEnd, lineCharEnd);
+          const textInLine = fullText.substring(overlapStart, overlapEnd);
+
+          if (!textInLine) continue;
+
+          // Apply segment formatting
+          const fontSize = segment.fontSize || defaultSize;
+          const fontFamily = segment.fontFamily;
+          const isBold = forceBold || segment.bold;
+          const isItalic = segment.italic;
+
+          // Set font
+          setFont(fontFamily, isBold, isItalic, fontSize);
+
+          // Set text color
+          if (segment.color) {
+            const rgb = parseColor(segment.color);
+            if (rgb) {
+              pdf.setTextColor(rgb.r, rgb.g, rgb.b);
+            } else {
+              pdf.setTextColor(0, 0, 0);
+            }
+          } else {
+            pdf.setTextColor(0, 0, 0);
+          }
+
+          // Get text width for decorations
+          const textWidth = pdf.getTextWidth(textInLine);
+
+          // Draw highlight background if present
+          if (segment.highlight) {
+            const rgb = parseColor(segment.highlight);
+            if (rgb) {
+              pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+              const rectHeight = fontSize * 0.4;
+              pdf.rect(
+                currentX,
+                y - rectHeight + 0.5,
+                textWidth,
+                rectHeight,
+                "F",
+              );
+            }
+          }
+
+          // Adjust Y for subscript/superscript
+          let renderY = y;
+          let renderSize = fontSize;
+          if (segment.subscript) {
+            renderY = y + fontSize * 0.15;
+            renderSize = fontSize * 0.7;
+            pdf.setFontSize(renderSize);
+          } else if (segment.superscript) {
+            renderY = y - fontSize * 0.2;
+            renderSize = fontSize * 0.7;
+            pdf.setFontSize(renderSize);
+          }
+
+          // Draw the text (for left-aligned, we draw segment by segment)
+          if (alignment === "left") {
+            pdf.text(textInLine, currentX, renderY);
+            currentX += textWidth;
+          }
+
+          // Draw underline
+          if (segment.underline) {
+            const underlineY = renderY + 0.5;
+            pdf.setDrawColor(
+              segment.color ? parseColor(segment.color)?.r || 0 : 0,
+              segment.color ? parseColor(segment.color)?.g || 0 : 0,
+              segment.color ? parseColor(segment.color)?.b || 0 : 0,
+            );
+            pdf.setLineWidth(0.2);
+            pdf.line(currentX - textWidth, underlineY, currentX, underlineY);
+          }
+
+          // Draw strikethrough
+          if (segment.strike) {
+            const strikeY = renderY - fontSize * 0.1;
+            pdf.setDrawColor(
+              segment.color ? parseColor(segment.color)?.r || 0 : 0,
+              segment.color ? parseColor(segment.color)?.g || 0 : 0,
+              segment.color ? parseColor(segment.color)?.b || 0 : 0,
+            );
+            pdf.setLineWidth(0.2);
+            pdf.line(currentX - textWidth, strikeY, currentX, strikeY);
+          }
+
+          maxFontSize = Math.max(maxFontSize, fontSize);
+        }
+
+        // For center/right alignment, draw the whole line at once (simpler approach)
+        if (alignment !== "left") {
+          // Determine dominant style for the line
+          const hasAnyBold = segments.some((s) => s.bold) || forceBold;
+          const hasAnyItalic = segments.some((s) => s.italic);
+          setFont(null, hasAnyBold, hasAnyItalic, defaultSize);
+          pdf.setTextColor(0, 0, 0);
+          const lineX = getAlignedX(align, pdf.getTextWidth(line), indent);
+          pdf.text(line, lineX, y, { align: alignment });
+        }
+
+        // Move to next line
+        y += maxFontSize * 0.38 * lineSpacing;
+        charIndex += line.length;
+
+        // Skip whitespace between lines
+        while (charIndex < fullText.length && fullText[charIndex] === " ") {
+          charIndex++;
+        }
+      }
+
+      y += baseLineHeight * 0.2;
+    };
+
+    // ========== RENDER NODE FUNCTION ==========
+
+    /**
+     * Render TipTap nodes recursively
+     */
+    const renderNode = (
+      node: any,
+      listType?: string,
+      listIdx?: number,
+      indent: number = 0,
+    ): void => {
+      if (!node) return;
+
+      // Get text alignment from node attributes
+      const textAlign = node.attrs?.textAlign;
+
+      switch (node.type) {
+        case "heading": {
+          const level = node.attrs?.level || 1;
+          const fontSize = level === 1 ? 24 : level === 2 ? 18 : 14;
+          const segments = extractSegments(node.content);
+
+          if (segments.length > 0 || node.content?.length) {
+            y += baseLineHeight * 0.6;
+            renderSegments(segments, textAlign, indent, fontSize, true);
+            y += baseLineHeight * 0.3;
+          }
+          break;
+        }
+
+        case "paragraph": {
+          const segments = extractSegments(node.content);
+          let prefix = "";
+
+          if (listType === "bullet") {
+            prefix = "  \u2022 "; // Bullet character
+          } else if (listType === "ordered" && listIdx !== undefined) {
+            prefix = `  ${listIdx}. `;
+          }
+
+          renderSegments(
+            segments,
+            textAlign,
+            indent,
+            baseFontSize,
+            false,
+            prefix,
+          );
+          break;
+        }
+
+        case "bulletList": {
+          (node.content || []).forEach((item: any) => {
+            renderNode(item, "bullet", undefined, indent);
+          });
+          break;
+        }
+
+        case "orderedList": {
+          (node.content || []).forEach((item: any, idx: number) => {
+            renderNode(item, "ordered", idx + 1, indent);
+          });
+          break;
+        }
+
+        case "listItem": {
+          (node.content || []).forEach((child: any) => {
+            renderNode(child, listType, listIdx, indent + 6);
+          });
+          break;
+        }
+
+        case "blockquote": {
+          y += baseLineHeight * 0.3;
+          const startY = y;
+
+          (node.content || []).forEach((child: any) => {
+            const segments = extractSegments(child.content);
+            // Force italic for blockquotes
+            const italicSegments = segments.map((s) => ({
+              ...s,
+              italic: true,
+            }));
+            renderSegments(
+              italicSegments,
+              child.attrs?.textAlign,
+              indent + 8,
+              baseFontSize,
+            );
+          });
+
+          // Draw left border
+          pdf.setDrawColor(180, 180, 180);
+          pdf.setLineWidth(0.5);
+          pdf.line(margin + indent + 3, startY - 2, margin + indent + 3, y - 2);
+          y += baseLineHeight * 0.3;
+          break;
+        }
+
+        case "horizontalRule": {
+          checkPageBreak(10);
+          y += baseLineHeight * 0.5;
+          pdf.setDrawColor(200, 200, 200);
+          pdf.setLineWidth(0.3);
+          pdf.line(margin, y, pageWidth - margin, y);
+          y += baseLineHeight * 0.5;
+          break;
+        }
+
+        case "codeBlock": {
+          const segments = extractSegments(node.content);
+          const codeText = segments.map((s) => s.text).join("");
+
+          if (codeText) {
+            y += baseLineHeight * 0.3;
+
+            // Draw background
+            const codeLines = codeText.split("\n");
+            const bgHeight = codeLines.length * 3.5 + 4;
+            checkPageBreak(bgHeight);
+            pdf.setFillColor(245, 245, 245);
+            pdf.rect(margin + indent, y - 3, maxWidth - indent, bgHeight, "F");
+
+            // Draw code text
+            pdf.setFont("courier", "normal");
+            pdf.setFontSize(9);
+            pdf.setTextColor(50, 50, 50);
+
+            for (const codeLine of codeLines) {
+              const wrapped = pdf.splitTextToSize(
+                codeLine || " ",
+                maxWidth - indent - 10,
+              );
+              for (const wl of wrapped) {
+                checkPageBreak(4);
+                pdf.text(wl, margin + indent + 3, y);
+                y += 3.5;
+              }
+            }
+
+            y += baseLineHeight * 0.3;
+            pdf.setTextColor(0, 0, 0);
+            setFont(null, false, false, baseFontSize);
+          }
+          break;
+        }
+
+        default:
+          if (node.content && Array.isArray(node.content)) {
+            node.content.forEach((child: any) => {
+              renderNode(child, listType, listIdx, indent);
+            });
+          }
+      }
+    };
+
+    // ========== RENDER DOCUMENT ==========
+
+    const docContent = content.content || [];
+    for (const node of docContent) {
+      renderNode(node);
+    }
+
+    // Save PDF
+    const safeFilename =
+      title
+        .replace(/[^a-zA-Z0-9\s-]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "") || "document";
+
+    pdf.save(`${safeFilename}.pdf`);
     updateStatus("PDF exported", "saved");
   } catch (error) {
     console.error("PDF export error:", error);
     updateStatus("PDF export failed", "error");
+    alert(
+      `PDF export failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     setLoading(false);
   }
@@ -583,6 +1337,21 @@ async function exportPdf(): Promise<void> {
 // ============ Toolbar Handling ============
 
 function setupToolbar(): void {
+  // Enable horizontal scroll with mouse wheel/touchpad
+  elements.toolbar.addEventListener(
+    "wheel",
+    (e) => {
+      // Only handle if there's horizontal overflow (scrollable)
+      if (elements.toolbar.scrollWidth > elements.toolbar.clientWidth) {
+        e.preventDefault();
+        // Use deltaY (vertical scroll) to scroll horizontally
+        elements.toolbar.scrollLeft += e.deltaY;
+      }
+    },
+    { passive: false },
+  );
+
+  // Handle toolbar button clicks
   elements.toolbar.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest(
       ".toolbar-btn",
@@ -755,6 +1524,8 @@ function setupVoiceInput(): void {
   if (!state.voiceInput.isSupported()) {
     elements.btnVoice.disabled = true;
     elements.btnVoice.title = "Voice input not supported in this browser";
+    elements.btnVoice.style.opacity = "0.5";
+    elements.btnVoice.style.cursor = "not-allowed";
   }
 }
 
@@ -771,7 +1542,13 @@ function setupEventHandlers(): void {
   elements.btnSave.addEventListener("click", () => saveDocument(false));
 
   // New document button
-  elements.btnNew.addEventListener("click", createNewDocument);
+  // New document button
+  elements.btnNew.addEventListener("click", () => {
+    createNewDocument();
+    if (window.innerWidth <= 768) {
+      toggleSidebar(false);
+    }
+  });
 
   // Export button
   elements.btnExport.addEventListener("click", exportPdf);
@@ -882,6 +1659,17 @@ function setupEventHandlers(): void {
       e.returnValue = "";
     }
   });
+
+  // Mobile Menu Handlers
+  if (elements.btnMenu) {
+    elements.btnMenu.addEventListener("click", () => toggleSidebar());
+  }
+
+  if (elements.sidebarOverlay) {
+    elements.sidebarOverlay.addEventListener("click", () =>
+      toggleSidebar(false),
+    );
+  }
 }
 
 // ============ Initialize Application ============
@@ -889,13 +1677,22 @@ function setupEventHandlers(): void {
 async function init(): Promise<void> {
   console.log("[Smart Office] Initializing...");
 
+  let lastWordCountUpdate = 0;
+
   // Initialize TipTap editor
   state.editor = new DocumentEditor({
     element: elements.editorEl,
     placeholder: "Start typing or use voice input...",
     onUpdate: () => {
       markDirty();
-      updateWordCount();
+
+      // Throttle word count updates (FE-004)
+      const now = Date.now();
+      if (now - lastWordCountUpdate > 500) {
+        updateWordCount();
+        lastWordCountUpdate = now;
+      }
+
       updateToolbarState();
     },
   });
@@ -910,6 +1707,39 @@ async function init(): Promise<void> {
 
   // Load initial data
   await Promise.all([loadDocuments(), loadTemplates()]);
+
+  // Check for unsaved draft from previous session
+  const draft = loadDraft();
+  if (draft) {
+    const ageMs = Date.now() - draft.timestamp;
+    const ageMinutes = Math.floor(ageMs / 60000);
+    const ageDisplay =
+      ageMinutes < 1
+        ? "less than a minute"
+        : ageMinutes === 1
+          ? "1 minute"
+          : `${ageMinutes} minutes`;
+
+    const restore = window.confirm(
+      `You have an unsaved draft from ${ageDisplay} ago.\n\n` +
+        `Title: "${draft.title}"\n\n` +
+        "Would you like to restore it?",
+    );
+
+    if (restore) {
+      elements.docTitle.value = draft.title;
+      if (state.editor && isValidTipTapContent(draft.content)) {
+        state.editor.setContent(draft.content);
+      }
+      state.isDirty = true;
+      updateStatus("Draft restored - remember to save!");
+      updateWordCount();
+      console.log("[Smart Office] Draft restored from localStorage");
+    } else {
+      clearDraft();
+      console.log("[Smart Office] Draft discarded");
+    }
+  }
 
   updateStatus("Ready");
   updateWordCount();

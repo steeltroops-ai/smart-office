@@ -5,11 +5,17 @@ const API_BASE = "/api";
 
 // ============ Types ============
 
+export interface DocumentSettings {
+  pageSize?: "a4" | "letter" | "legal" | "a5";
+  lineSpacing?: number;
+}
+
 export interface Document {
   id: string;
   title: string;
   content: object;
   templateId?: string | null;
+  settings?: DocumentSettings | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +100,7 @@ export const documentApi = {
     title?: string;
     content?: object;
     templateId?: string;
+    settings?: DocumentSettings;
   }): Promise<Document | null> {
     return request<Document>("/documents", {
       method: "POST",
@@ -106,7 +113,7 @@ export const documentApi = {
    */
   async update(
     id: string,
-    data: { title?: string; content?: object },
+    data: { title?: string; content?: object; settings?: DocumentSettings },
   ): Promise<Document | null> {
     return request<Document>(`/documents/${id}`, {
       method: "PUT",
