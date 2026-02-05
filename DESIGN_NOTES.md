@@ -18,42 +18,47 @@ The ask was: build something that gives them a modern editing experience but run
 
 ### System Architecture
 
-**Single Server (Monolith)**
+#### Single Server (Monolith)
 
-```
+```text
 [Clients] <---> [Bun Server] <---> [SQLite (WAL Mode)]
 ```
 
-*   **Choice:** **SQLite (WAL Mode)**
-*   **Rejected:** JSON Files (fs)
-*   **Why:** JSON files suffer from race conditions (last-write-wins). SQLite WAL provides atomic commits and safe concurrency without the overhead of Postgres.
+- **Choice:** **SQLite (WAL Mode)**
+- **Rejected:** JSON Files (fs)
+- **Why:** JSON files suffer from race conditions (last-write-wins). SQLite WAL provides atomic commits and safe concurrency without the overhead of Postgres.
 
-**For Scale (100+ Users):**
-*   **Choice:** PostgreSQL + Redis
-*   **Why:** SQLite has a single writer lock. Postgres handles concurrent writes. Redis manages ephemeral distributed locks.
+#### For Scale (100+ Users)
+
+- **Choice:** PostgreSQL + Redis
+- **Why:** SQLite has a single writer lock. Postgres handles concurrent writes. Redis manages ephemeral distributed locks.
 
 ### Critical Tech Stack Decisions
 
-**Runtime**
-*   **Choice:** **Bun**
-*   **Rejected:** Node.js
-*   **Why:** Native TypeScript support (no `tsc` build step), 4x faster startup, and built-in SQLite driver. Reduces "Download Internet" fatigue on offline networks.
+#### Runtime
 
-**Editor Engine**
-*   **Choice:** **TipTap (ProseMirror)**
-*   **Rejected:** Quill / CKEditor / HTML5 ContentEditable
-*   **Why:** It separates Model (JSON) from View (DOM).
-    *   *Depth:* Storing HTML is brittle. Storing JSON State allows deterministic rendering (e.g. to PDF or Mobile) without parsing messy DOM strings.
+- **Choice:** **Bun**
+- **Rejected:** Node.js
+- **Why:** Native TypeScript support (no `tsc` build step), 4x faster startup, and built-in SQLite driver. Reduces "Download Internet" fatigue on offline networks.
 
-**API Framework**
-*   **Choice:** **Hono**
-*   **Rejected:** Express
-*   **Why:** Type-safe Router. 10x smaller. Shared types with client means if I change the API response, the Frontend build fails immediately.
+#### Editor Engine
 
-**Styling**
-*   **Choice:** **Vanilla CSS**
-*   **Rejected:** Tailwind / Bootstrap
-*   **Why:** Offline-first requirement. No build pipeline needed. One `.css` file is easier to debug in a browser console than 50 utility classes.
+- **Choice:** **TipTap (ProseMirror)**
+- **Rejected:** Quill / CKEditor / HTML5 ContentEditable
+- **Why:** It separates Model (JSON) from View (DOM).
+  - _Depth:_ Storing HTML is brittle. Storing JSON State allows deterministic rendering (e.g. to PDF or Mobile) without parsing messy DOM strings.
+
+#### API Framework
+
+- **Choice:** **Hono**
+- **Rejected:** Express
+- **Why:** Type-safe Router. 10x smaller. Shared types with client means if I change the API response, the Frontend build fails immediately.
+
+#### Styling
+
+- **Choice:** **Vanilla CSS**
+- **Rejected:** Tailwind / Bootstrap
+- **Why:** Offline-first requirement. No build pipeline needed. One `.css` file is easier to debug in a browser console than 50 utility classes.
 
 ---
 
@@ -62,6 +67,7 @@ The ask was: build something that gives them a modern editing experience but run
 ### 1. Document Editing
 
 TipTap gave me this out of the box. I added these extensions:
+
 - StarterKit (bold, italic, lists, headings)
 - TextAlign (left/center/right/justify)
 - FontFamily and FontSize (dropdowns in toolbar)
@@ -69,7 +75,7 @@ TipTap gave me this out of the box. I added these extensions:
 
 The toolbar was hand-built with SVG icons. I wanted it to feel like Word/Google Docs so users don't have a learning curve.
 
-**Formatting specifics:**
+#### Formatting specifics
 
 - Bold, headings, lists → StarterKit extension
 - Sender address right-aligned → TextAlign extension with `textAlign: 'right'`
@@ -80,18 +86,21 @@ The toolbar was hand-built with SVG icons. I wanted it to feel like Word/Google 
 
 Documents are stored as JSON files:
 
-```
+```text
 data/
   doc-xyz123.json
   doc-abc456.json
 ```
 
 Each file looks like:
+
 ```json
 {
   "id": "doc-xyz123",
   "title": "Meeting Notes",
-  "content": { /* TipTap JSON */ },
+  "content": {
+    /* TipTap JSON */
+  },
   "createdAt": "2024-02-05T10:00:00Z",
   "updatedAt": "2024-02-05T10:30:00Z",
   "version": 1
@@ -99,6 +108,7 @@ Each file looks like:
 ```
 
 The API is simple REST:
+
 - `GET /api/documents` - list all
 - `POST /api/documents` - create
 - `PUT /api/documents/:id` - update
@@ -106,7 +116,8 @@ The API is simple REST:
 
 Auto-save triggers 2 seconds after you stop typing. The UI shows "Saving..." and "Saved" so you know it worked.
 
-**For production**, I'd add:
+#### For production, I'd add
+
 - `version` field for conflict detection
 - `lockedBy` and `lockedAt` for pessimistic locking
 - `createdBy` for audit trail
@@ -115,27 +126,30 @@ Before saving: check your version matches server. If mismatch, someone else save
 
 ### 3. Voice Input (Architecture)
 
-**The Challenge:** "Offline" usually implies privacy and zero-cloud.
+#### The Challenge
 
-*   **Choice (V2 Enterprise):** **Local Whisper (Server-side)**
-*   **Rejected:** Web Speech API (Browser)
-*   **Why:**
-    *   *Privacy:* Browser APIs often silently send audio to Cloud (Google/Apple) for processing. Unacceptable for Secure Gov.
-    *   *Consistency:* Works on Firefox/Safari (which lack offline dictation).
+"Offline" usually implies privacy and zero-cloud.
 
-**The Flow:**
-1.  **Capture:** MediaRecorder API captures raw PCM chunks.
-2.  **Stream:** WebSocket pushes chunks to Server.
-3.  **Process:** Server runs `Whisper.cpp` (WASM/C++) on audio buffer.
-4.  **Insert:** Text stream pushed back to Editor cursor.
+- **Choice (V2 Enterprise):** **Local Whisper (Server-side)**
+- **Rejected:** Web Speech API (Browser)
+- **Why:**
+  - _Privacy:_ Browser APIs often silently send audio to Cloud (Google/Apple) for processing. Unacceptable for Secure Gov.
+  - _Consistency:_ Works on Firefox/Safari (which lack offline dictation).
 
-*(Note: V1 POC uses Web Speech API purely for demo ease, but the design mandates Whisper).*
+#### The Flow
+
+1. **Capture:** MediaRecorder API captures raw PCM chunks.
+2. **Stream:** WebSocket pushes chunks to Server.
+3. **Process:** Server runs `Whisper.cpp` (WASM/C++) on audio buffer.
+4. **Insert:** Text stream pushed back to Editor cursor.
+
+_(Note: V1 POC uses Web Speech API purely for demo ease, but the design mandates Whisper)._
 
 ### 4. Templates
 
 Templates are just pre-made documents stored as JSON:
 
-```
+```text
 templates/
   blank.json
   official-letter.json
@@ -143,7 +157,8 @@ templates/
   notice.json
 ```
 
-**Template format:**
+#### Template format
+
 ```json
 {
   "id": "official-letter",
@@ -151,10 +166,16 @@ templates/
   "content": {
     "type": "doc",
     "content": [
-      {"type": "paragraph", "attrs": {"textAlign": "right"}, 
-       "content": [{"type": "text", "text": "[Sender Name]"}]},
-      {"type": "paragraph", "attrs": {"textAlign": "right"},
-       "content": [{"type": "text", "text": "[Date]"}]}
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Sender Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Date]" }]
+      }
     ]
   }
 }
@@ -162,21 +183,20 @@ templates/
 
 When you click a template, it loads the content into the editor. You can then edit and save as a new document.
 
-**For production, templates would need:**
+#### For production, templates would need
 
 1. **Variable substitution**: `{{TODAY}}`, `{{CURRENT_USER}}`
 2. **Versioning**: Old docs keep working with old template version
 3. **Validation**: Required sections must exist before export
 4. **Admin editor**: UI to create/edit templates (not just JSON files)
 
-**Ensuring documents follow standard format:**
+#### Ensuring documents follow standard format
 
 I'd add schema validation:
+
 ```typescript
 function validate(doc, template) {
-  const missing = template.requiredSections.filter(
-    s => !doc.hasSection(s)
-  );
+  const missing = template.requiredSections.filter((s) => !doc.hasSection(s));
   return missing.length === 0;
 }
 ```
@@ -195,13 +215,13 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 ### What I Didn't Build (and Why)
 
-| Feature | Why I Skipped | When to Add |
-|---------|--------------|-------------|
-| User authentication | Basic Identity (Header) added | Needed for Locking/Auditing |
+| Feature                 | Why I Skipped                         | When to Add                     |
+| :---------------------- | :------------------------------------ | :------------------------------ |
+| User authentication     | Basic Identity (Header) added         | Needed for Locking/Auditing     |
 | Real-time collaboration | Locking is simpler, fits gov use case | If they specifically request it |
-| Document versioning | Adds DB complexity | Phase 2, with SQLite migration |
-| Full-text search | Needs database indexing | When doc count > 500 |
-| DOCX export | PDF is sufficient | If Word compatibility needed |
+| Document versioning     | Adds DB complexity                    | Phase 2, with SQLite migration  |
+| Full-text search        | Needs database indexing               | When doc count > 500            |
+| DOCX export             | PDF is sufficient                     | If Word compatibility needed    |
 
 ### Where I Took Shortcuts
 
@@ -231,20 +251,21 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 ## How I'd Handle Multi-User!? (Concurrency)
 
-**Strategy: Pessimistic Locking**
+### Strategy: Pessimistic Locking
 
-*   **Choice:** **Locking + Heartbeats**
-*   **Rejected:** Real-time (CRDT/Y.js)
-*   **Why:**
-    *   *Workflow:* Government approval chains are sequential (Draft -> Review -> Approve), not collaborative brainstorming.
-    *   *Simplicity:* CRDTs add massive complexity (vector clocks, tombstones). Locking is easy to audit.
+- **Choice:** **Locking + Heartbeats**
+- **Rejected:** Real-time (CRDT/Y.js)
+- **Why:**
+  - _Workflow:_ Government approval chains are sequential (Draft -> Review -> Approve), not collaborative brainstorming.
+  - _Simplicity:_ CRDTs add massive complexity (vector clocks, tombstones). Locking is easy to audit.
 
-**The Implementation:**
-1.  User A opens Doc: Server checks `locked_by`.
-    *   If null: Set `locked_by = A`, `expires = NOW + 30s`.
-2.  **Heartbeat:** Client A pings every 10s to extend lock.
-3.  User B opens Doc: Server sees lock. Returns `READ_ONLY` mode.
-4.  **FailSafe:** If A closes tab (no ping), lock expires in 30s. No admin intervention needed.
+### The Implementation
+
+1. User A opens Doc: Server checks `locked_by`.
+   - If null: Set `locked_by = A`, `expires = NOW + 30s`.
+2. **Heartbeat:** Client A pings every 10s to extend lock.
+3. User B opens Doc: Server sees lock. Returns `READ_ONLY` mode.
+4. **FailSafe:** If A closes tab (no ping), lock expires in 30s. No admin intervention needed.
 
 ---
 
@@ -252,17 +273,17 @@ The quality is... okay. Basic text and formatting works. Tables and complex layo
 
 State machine:
 
-```
+```text
 Draft → Submitted → Under Review → Approved → Published
                   ↘ Rejected → Draft
 ```
 
 ```typescript
 const workflow = {
-  DRAFT:        { next: ['SUBMITTED'], role: 'author' },
-  SUBMITTED:    { next: ['UNDER_REVIEW', 'DRAFT'], role: 'reviewer' },
-  UNDER_REVIEW: { next: ['APPROVED', 'REJECTED'], role: 'approver' },
-  APPROVED:     { next: ['PUBLISHED'], role: 'publisher' }
+  DRAFT: { next: ["SUBMITTED"], role: "author" },
+  SUBMITTED: { next: ["UNDER_REVIEW", "DRAFT"], role: "reviewer" },
+  UNDER_REVIEW: { next: ["APPROVED", "REJECTED"], role: "approver" },
+  APPROVED: { next: ["PUBLISHED"], role: "publisher" },
 };
 ```
 
@@ -271,21 +292,25 @@ Each transition logs who did what when. Document is locked during review stages.
 ---
 
 ## How I'd Add AI!?
+
 The constraint is offline + deterministic. AI can still help:
 
-**Local models only**:
+### Local models only
+
 - Grammar: LanguageTool (runs locally, Java)
 - Spelling: Hunspell
 - Suggestions: Small model like Phi-2 (2.7B params, runs on CPU)
 
-**Suggestions, not auto-changes**:
+### Suggestions, not auto-changes
+
 ```typescript
 const suggestions = await grammarCheck(doc);
 showPanel(suggestions); // User clicks to apply
 // Never: doc.content = ai.autoFix(doc)
 ```
 
-**Deterministic outputs**:
+### Deterministic outputs
+
 ```typescript
 const result = model.generate(text, { temperature: 0, seed: docId });
 // Same input = same output, every time
@@ -316,13 +341,13 @@ bun run dev
 bun run start
 ```
 
-Opens at http://localhost:3000
+Opens at <http://localhost:3000>
 
 ---
 
 ## File Structure
 
-```
+```text
 smart-office/
   src/
     client/         # Frontend
@@ -342,22 +367,22 @@ smart-office/
 
 ## Architectural Choices (Quick Summary)
 
-*   **Database: SQLite vs JSON Files**
-    *   **Choice:** SQLite (WAL Mode)
-    *   **Why:** JSON files corrupt data if 2 users save at once. SQLite is safe, atomic, and zero-config in Bun.
+- **Database: SQLite vs JSON Files**
+  - **Choice:** SQLite (WAL Mode)
+  - **Why:** JSON files corrupt data if 2 users save at once. SQLite is safe, atomic, and zero-config in Bun.
 
-*   **Voice: Local Whisper vs Web Speech API**
-    *   **Choice:** Local Whisper (Architecture)
-    *   **Why:** Web Speech API sends audio to Google Cloud. Whisper works 100% offline (Privacy/Compliance).
+- **Voice: Local Whisper vs Web Speech API**
+  - **Choice:** Local Whisper (Architecture)
+  - **Why:** Web Speech API sends audio to Google Cloud. Whisper works 100% offline (Privacy/Compliance).
 
-*   **Auth: Basic Identity vs No Auth**
-    *   **Choice:** Header-based Identity (`X-User-ID`)
-    *   **Why:** "No Auth" is dangerous (anonymous deletions). We need to track who locked which document.
+- **Auth: Basic Identity vs No Auth**
+  - **Choice:** Header-based Identity (`X-User-ID`)
+  - **Why:** "No Auth" is dangerous (anonymous deletions). We need to track who locked which document.
 
-*   **Locking: Heartbeat vs Hard Timeout**
-    *   **Choice:** Heartbeat (30s ping)
-    *   **Why:** Hard timeouts (e.g. 30min) block the whole team if a user crashes. Heartbeats release locks instantly when a user disconnects.
+- **Locking: Heartbeat vs Hard Timeout**
+  - **Choice:** Heartbeat (30s ping)
+  - **Why:** Hard timeouts (e.g. 30min) block the whole team if a user crashes. Heartbeats release locks instantly when a user disconnects.
 
-*   **Runtime: Bun vs Node.js**
-    *   **Choice:** Bun
-    *   **Why:** Built-in TypeScript, SQLite, and 6x faster startup. Ideal for this self-contained POC.
+- **Runtime: Bun vs Node.js**
+  - **Choice:** Bun
+  - **Why:** Built-in TypeScript, SQLite, and 6x faster startup. Ideal for this self-contained POC.

@@ -1,4 +1,5 @@
 # Smart Office - POC Software Design
+
 ---
 
 ## Document Purpose
@@ -14,6 +15,7 @@ This takes the architecture from `01-design-and-approach.md` and turns it into a
 ### 1.1 What I'm Building
 
 A minimal, working document editor that:
+
 1. Runs a local Bun server
 2. Serves a browser-based rich text editor
 3. Lets you create, edit, save, and load documents
@@ -28,26 +30,26 @@ flowchart LR
         C["Save to server"]
         D["Load documents"]
     end
-    
+
     subgraph BONUS["Bonus (If Time Permits)"]
         E["Template system"]
         F["PDF export"]
         G["Voice input"]
     end
-    
+
     style REQUIRED fill:#dcfce7,stroke:#16a34a
     style BONUS fill:#fef3c7,stroke:#d97706
 ```
 
 ### 1.3 What I'm NOT Building
 
-| Excluded Feature | Reason |
-|------------------|--------|
-| User Authentication | Basic Identity (Header) added check |
-| Real-time Collaboration | Replaced with Pessimistic Locking |
-| DOCX Export | PDF is sufficient for demo |
-| Offline PWA | Server is source of truth |
-| Search | Requires database, not needed for demo |
+| Excluded Feature        | Reason                                 |
+| :---------------------- | :------------------------------------- |
+| User Authentication     | Basic Identity (Header) added check    |
+| Real-time Collaboration | Replaced with Pessimistic Locking      |
+| DOCX Export             | PDF is sufficient for demo             |
+| Offline PWA             | Server is source of truth              |
+| Search                  | Requires database, not needed for demo |
 
 ---
 
@@ -63,15 +65,15 @@ flowchart TB
         JS["Vanilla JavaScript"]
         TIPTAP["TipTap Editor"]
     end
-    
+
     subgraph BACKEND["Server"]
         BUN["Bun Runtime"]
         HONO["Hono Framework"]
         DB["SQLite (Native)"]
     end
-    
+
     FRONTEND <-->|"HTTP/REST"| BACKEND
-    
+
     style BUN fill:#f472b6,color:#fff
     style DB fill:#f472b6,color:#fff
     style TIPTAP fill:#4f46e5,color:#fff
@@ -79,13 +81,13 @@ flowchart TB
 
 ### 2.2 Technology Justification
 
-| Technology | Why Chosen |
-|------------|-----------|
-| **Bun** | 6x faster startup than Node.js, native TypeScript, single binary |
-| **Hono** | Ultra-lightweight (14kb), Express-like API, TypeScript native |
-| **TipTap** | JSON storage format, headless design, ProseMirror foundation |
-| **Vanilla CSS** | No framework dependency, full control, simple for POC |
-| **SQLite** | ACID compliance, zero-config in Bun, prevents data corruption |
+| Technology      | Why Chosen                                                       |
+| :-------------- | :--------------------------------------------------------------- |
+| **Bun**         | 6x faster startup than Node.js, native TypeScript, single binary |
+| **Hono**        | Ultra-lightweight (14kb), Express-like API, TypeScript native    |
+| **TipTap**      | JSON storage format, headless design, ProseMirror foundation     |
+| **Vanilla CSS** | No framework dependency, full control, simple for POC            |
+| **SQLite**      | ACID compliance, zero-config in Bun, prevents data corruption    |
 
 **Note:** I'm using Vanilla CSS, not Tailwind, to keep dependencies minimal. Fits the offline-first philosophy better.
 
@@ -95,7 +97,7 @@ flowchart TB
 
 ### 3.1 Folder Structure
 
-```
+```text
 smart-office/
 |
 |-- src/
@@ -154,16 +156,16 @@ sequenceDiagram
     participant API as API Layer (Fetch)
     participant Server as Bun/Hono Server
     participant Storage as File System
-    
+
     User->>Browser: Opens app
     Browser->>Server: GET /api/documents
     Server->>Storage: Read document list
     Storage-->>Server: Document metadata
     Server-->>Browser: JSON response
-    
+
     User->>Browser: Creates/Edits document
     Browser->>Editor: User types content
-    
+
     User->>Browser: Clicks Save
     Editor->>API: Get JSON content
     API->>Server: PUT /api/documents/:id
@@ -175,21 +177,22 @@ sequenceDiagram
 
 ### 4.2 API Endpoints
 
-| Method | Endpoint | Purpose | Request Body | Response |
-|--------|----------|---------|--------------|----------|
-| GET | `/api/documents` | List all documents | - | `Document[]` |
-| GET | `/api/documents/:id` | Get single document | - | `Document` |
-| POST | `/api/documents` | Create document | `{title, content}` | `Document` |
-| PUT | `/api/documents/:id` | Update document | `{title, content}` | `Document` |
-| DELETE | `/api/documents/:id` | Delete document | - | `{success: true}` |
-| POST | `/api/documents/:id/heartbeat` | Maintain Lock | - | `{locked: boolean}` |
-| GET | `/api/templates` | List templates | - | `Template[]` |
-| GET | `/api/templates/:id` | Get template | - | `Template` |
-| GET | `/api/documents/:id/pdf` | Export as PDF | - | PDF file (binary) |
+| Method | Endpoint                       | Purpose             | Request Body       | Response            |
+| :----- | :----------------------------- | :------------------ | :----------------- | :------------------ |
+| GET    | `/api/documents`               | List all documents  | -                  | `Document[]`        |
+| GET    | `/api/documents/:id`           | Get single document | -                  | `Document`          |
+| POST   | `/api/documents`               | Create document     | `{title, content}` | `Document`          |
+| PUT    | `/api/documents/:id`           | Update document     | `{title, content}` | `Document`          |
+| DELETE | `/api/documents/:id`           | Delete document     | -                  | `{success: true}`   |
+| POST   | `/api/documents/:id/heartbeat` | Maintain Lock       | -                  | `{locked: boolean}` |
+| GET    | `/api/templates`               | List templates      | -                  | `Template[]`        |
+| GET    | `/api/templates/:id`           | Get template        | -                  | `Template`          |
+| GET    | `/api/documents/:id/pdf`       | Export as PDF       | -                  | PDF file (binary)   |
 
 ### 4.3 Data Formats
 
 **Document Structure:**
+
 ```json
 {
   "id": "doc_a1b2c3d4",
@@ -197,8 +200,15 @@ sequenceDiagram
   "content": {
     "type": "doc",
     "content": [
-      {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Title"}]},
-      {"type": "paragraph", "content": [{"type": "text", "text": "Body content..."}]}
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "Title" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Body content..." }]
+      }
     ]
   },
   "createdAt": "2026-02-04T22:00:00Z",
@@ -210,6 +220,7 @@ sequenceDiagram
 ```
 
 **Template Structure:**
+
 ```json
 {
   "id": "official-letter",
@@ -218,8 +229,15 @@ sequenceDiagram
   "content": {
     "type": "doc",
     "content": [
-      {"type": "paragraph", "attrs": {"textAlign": "right"}, "content": [{"type": "text", "text": "[Sender Name]"}]},
-      {"type": "paragraph", "content": [{"type": "text", "text": "Dear Sir/Madam,"}]}
+      {
+        "type": "paragraph",
+        "attrs": { "textAlign": "right" },
+        "content": [{ "type": "text", "text": "[Sender Name]" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Dear Sir/Madam," }]
+      }
     ]
   }
 }
@@ -231,7 +249,7 @@ sequenceDiagram
 
 ### 5.1 Page Layout
 
-```
+```text
 +----------------------------------------------------------+
 |  Header Bar                                               |
 |  [Logo] [Document Title (editable)] [Save] [Export]       |
@@ -254,17 +272,17 @@ sequenceDiagram
 
 ```typescript
 // js/editor.ts
-import { Editor } from '@tiptap/core';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
-import TextAlign from '@tiptap/extension-text-align';
-import Underline from '@tiptap/extension-underline';
-import FontFamily from '@tiptap/extension-font-family';
-import { TextStyle } from '@tiptap/extension-text-style';
-import Highlight from '@tiptap/extension-highlight';
-import Subscript from '@tiptap/extension-subscript';
-import Superscript from '@tiptap/extension-superscript';
-import FontSize from '@tiptap/extension-font-size';
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import TextAlign from "@tiptap/extension-text-align";
+import Underline from "@tiptap/extension-underline";
+import FontFamily from "@tiptap/extension-font-family";
+import { TextStyle } from "@tiptap/extension-text-style";
+import Highlight from "@tiptap/extension-highlight";
+import Subscript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
+import FontSize from "@tiptap/extension-font-size";
 
 export class DocumentEditor {
   private editor: Editor;
@@ -274,8 +292,10 @@ export class DocumentEditor {
       element,
       extensions: [
         StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-        Placeholder.configure({ placeholder: 'Start typing or use voice input...' }),
-        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+        Placeholder.configure({
+          placeholder: "Start typing or use voice input...",
+        }),
+        TextAlign.configure({ types: ["heading", "paragraph"] }),
         Underline,
         TextStyle,
         FontFamily,
@@ -284,16 +304,22 @@ export class DocumentEditor {
         Subscript,
         Superscript,
       ],
-      content: '',
+      content: "",
       onUpdate: ({ editor }) => {
         if (onUpdate) onUpdate(editor.getJSON());
-      }
+      },
     });
   }
 
-  getJSON(): object { return this.editor.getJSON(); }
-  setContent(content: object): void { this.editor.commands.setContent(content); }
-  clear(): void { this.editor.commands.clearContent(); }
+  getJSON(): object {
+    return this.editor.getJSON();
+  }
+  setContent(content: object): void {
+    this.editor.commands.setContent(content);
+  }
+  clear(): void {
+    this.editor.commands.clearContent();
+  }
 }
 ```
 
@@ -301,36 +327,36 @@ export class DocumentEditor {
 
 ```typescript
 // js/api.ts
-const API_BASE = '/api';
+const API_BASE = "/api";
 
 export const api = {
   async listDocuments() {
     const res = await fetch(`${API_BASE}/documents`);
     return res.json();
   },
-  
+
   async getDocument(id: string) {
     const res = await fetch(`${API_BASE}/documents/${id}`);
     return res.json();
   },
-  
+
   async saveDocument(id: string, data: { title: string; content: object }) {
     const res = await fetch(`${API_BASE}/documents/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
     });
     return res.json();
   },
-  
+
   async createDocument(data: { title: string; content?: object }) {
     const res = await fetch(`${API_BASE}/documents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
     });
     return res.json();
-  }
+  },
 };
 ```
 
@@ -342,27 +368,27 @@ export const api = {
 
 ```typescript
 // server/index.ts
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { serveStatic } from 'hono/bun';
-import { documentRoutes } from './routes/documents';
-import { templateRoutes } from './routes/templates';
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { serveStatic } from "hono/bun";
+import { documentRoutes } from "./routes/documents";
+import { templateRoutes } from "./routes/templates";
 
 const app = new Hono();
 
 // Middleware
-app.use('*', cors());
+app.use("*", cors());
 
 // API Routes
-app.route('/api/documents', documentRoutes);
-app.route('/api/templates', templateRoutes);
+app.route("/api/documents", documentRoutes);
+app.route("/api/templates", templateRoutes);
 
 // Serve frontend
-app.use('/*', serveStatic({ root: './src/client' }));
+app.use("/*", serveStatic({ root: "./src/client" }));
 
 export default {
   port: 3000,
-  fetch: app.fetch
+  fetch: app.fetch,
 };
 ```
 
@@ -370,54 +396,54 @@ export default {
 
 ```typescript
 // server/routes/documents.ts
-import { Hono } from 'hono';
-import { storage } from '../services/storage';
-import { generateId } from '../utils/id';
+import { Hono } from "hono";
+import { storage } from "../services/storage";
+import { generateId } from "../utils/id";
 
 export const documentRoutes = new Hono();
 
-documentRoutes.get('/', async (c) => {
+documentRoutes.get("/", async (c) => {
   const docs = await storage.listDocuments();
   return c.json(docs);
 });
 
-documentRoutes.get('/:id', async (c) => {
-  const id = c.req.param('id');
+documentRoutes.get("/:id", async (c) => {
+  const id = c.req.param("id");
   const doc = await storage.getDocument(id);
-  if (!doc) return c.json({ error: 'Not found' }, 404);
+  if (!doc) return c.json({ error: "Not found" }, 404);
   return c.json(doc);
 });
 
-documentRoutes.post('/', async (c) => {
+documentRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const doc = {
     id: generateId(),
-    title: body.title || 'Untitled',
-    content: body.content || { type: 'doc', content: [] },
+    title: body.title || "Untitled",
+    content: body.content || { type: "doc", content: [] },
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
   await storage.saveDocument(doc);
   return c.json(doc, 201);
 });
 
-documentRoutes.put('/:id', async (c) => {
-  const id = c.req.param('id');
+documentRoutes.put("/:id", async (c) => {
+  const id = c.req.param("id");
   const body = await c.req.json();
   const existing = await storage.getDocument(id);
-  if (!existing) return c.json({ error: 'Not found' }, 404);
-  
+  if (!existing) return c.json({ error: "Not found" }, 404);
+
   const updated = {
     ...existing,
     ...body,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
   await storage.saveDocument(updated);
   return c.json(updated);
 });
 
-documentRoutes.delete('/:id', async (c) => {
-  const id = c.req.param('id');
+documentRoutes.delete("/:id", async (c) => {
+  const id = c.req.param("id");
   await storage.deleteDocument(id);
   return c.json({ success: true });
 });
@@ -430,17 +456,17 @@ documentRoutes.delete('/:id', async (c) => {
 import { Database } from "bun:sqlite";
 import { mkdir } from "fs/promises";
 
-const DB_PATH = './data/smart_office.sqlite';
+const DB_PATH = "./data/smart_office.sqlite";
 
 class StorageService {
   private db: Database;
-  
+
   constructor() {
     this.db = new Database(DB_PATH, { create: true });
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.init();
   }
-  
+
   // See src/server/services/storage.ts for full Implementation
   // Methods: listDocuments, getDocument, saveDocument, deleteDocument, lockDocument, heartbeat
 }
@@ -463,15 +489,15 @@ flowchart TB
         B["Works 100% Offline"]
         C["Zero Cloud Dependency"]
     end
-    
+
     subgraph FUTURE["Future: Server Voice"]
         D["Whisper.cpp on server"]
         E["Works in all browsers"]
         F["Higher accuracy"]
     end
-    
+
     POC -->|"Upgrade path"| FUTURE
-    
+
     style POC fill:#fef3c7, stroke:#d97706
     style FUTURE fill:#dcfce7, stroke:#16a34a
 ```
@@ -483,32 +509,32 @@ flowchart TB
 export class VoiceInput {
   private recognition: SpeechRecognition | null = null;
   private onResult: (text: string) => void;
-  
+
   constructor(onResult: (text: string) => void) {
     this.onResult = onResult;
-    
-    if ('webkitSpeechRecognition' in window) {
+
+    if ("webkitSpeechRecognition" in window) {
       this.recognition = new webkitSpeechRecognition();
       this.recognition.continuous = true;
       this.recognition.interimResults = true;
-      
+
       this.recognition.onresult = (event) => {
         const result = event.results[event.results.length - 1];
         if (result.isFinal) {
-          this.onResult(result[0].transcript + ' ');
+          this.onResult(result[0].transcript + " ");
         }
       };
     }
   }
-  
+
   start() {
     this.recognition?.start();
   }
-  
+
   stop() {
     this.recognition?.stop();
   }
-  
+
   isSupported() {
     return this.recognition !== null;
   }
@@ -545,7 +571,7 @@ flowchart TB
         PC1["Colleague 1"]
         PC2["Colleague 2"]
     end
-    
+
     PC1 -->|"http://192.168.1.100:3000"| SERVER
     PC2 -->|"http://192.168.1.100:3000"| SERVER
 ```
@@ -560,19 +586,19 @@ flowchart TB
 
 ### 9.1 Priority Improvements
 
-| Improvement | Effort | Impact |
-|-------------|--------|--------|
-| DOCX Export | Low | Medium |
-| Better error messages | Low | Medium |
-| Auto-save indicator | Low | High |
-| Document search | Medium | High |
-| User accounts | High | High |
+| Improvement           | Effort | Impact |
+| :-------------------- | :----- | :----- |
+| DOCX Export           | Low    | Medium |
+| Better error messages | Low    | Medium |
+| Auto-save indicator   | Low    | High   |
+| Document search       | Medium | High   |
+| User accounts         | High   | High   |
 
 ### 9.2 Scaling Path
 
 Follows the same progression from `01-design-and-approach.md`:
 
-```
+```text
 v1 (Enterprise): SQLite (Completed) → v3: PostgreSQL
 v1: Web Speech (Demo) → v2: Local Whisper (Architecture)
 v1: Basic Auth (Header) → v2: Role-based

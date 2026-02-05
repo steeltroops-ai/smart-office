@@ -4,13 +4,13 @@
 
 ## Contents
 
-1. [Problem Space](#problem-space)
-2. [System Architecture](#system-architecture)
-3. [Technology Decisions](#technology-decisions)
-4. [Component Design](#component-design)
-5. [Data Architecture](#data-architecture)
-6. [Scaling Strategy](#scaling-strategy)
-7. [Trade-off Analysis](#trade-off-analysis)
+1. [Problem Space](#1-problem-space)
+2. [System Architecture](#2-system-architecture)
+3. [Technology Decisions](#3-technology-decisions)
+4. [Component Design](#4-component-design)
+5. [Data Architecture](#5-data-architecture)
+6. [Scaling Strategy](#6-scaling-strategy)
+7. [Trade-off Analysis](#7-trade-off-analysis)
 
 ---
 
@@ -942,17 +942,17 @@ graph TB
 
 **The key principle:** AI suggests, user decides. Never auto-apply AI changes to formal documents.
 
-**Example: Template Suggestion**
+#### Example: Template Suggestion
 
 Instead of:
 
-```
+```text
 AI: "This looks like a formal letter. I've applied the template."
 ```
 
 Do:
 
-```
+```text
 System: "Based on keywords, suggested templates:"
 1. Official Letter (80% match)
 2. Memo (65% match)

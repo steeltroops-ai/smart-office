@@ -16,7 +16,7 @@ bun install
 bun run dev
 ```
 
-Open http://localhost:3000
+Open <http://localhost:3000>
 
 ## Features
 
@@ -30,7 +30,7 @@ Open http://localhost:3000
 
 ## How It Works
 
-```
+```text
 Browser <---> Bun Server <---> SQLite (WAL)
 ```
 
@@ -38,7 +38,7 @@ That's it. Server serves the editor and handles document storage. Documents are 
 
 ## Project Structure
 
-```
+```text
 src/
   client/       # Frontend (HTML, CSS, TypeScript)
   server/       # Backend (Hono API routes)
@@ -102,7 +102,7 @@ bun run start
 
 For multi-device access, other machines on the network can use:
 
-```
+```text
 http://<your-ip>:3000
 ```
 
