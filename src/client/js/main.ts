@@ -23,6 +23,7 @@ interface AppState {
   voiceInput: VoiceInput | null;
   autoSaveTimer: any | null;
   heartbeatTimer: any | null;
+  confirmDeleteId: string | null;
 }
 
 const state: AppState = {
@@ -34,6 +35,7 @@ const state: AppState = {
   voiceInput: null,
   autoSaveTimer: null,
   heartbeatTimer: null,
+  confirmDeleteId: null,
 };
 
 // ============ DOM Elements ============
@@ -59,7 +61,64 @@ const elements = {
   btnMenu: document.getElementById("btn-menu") as HTMLButtonElement,
   sidebar: document.getElementById("sidebar") as HTMLElement,
   sidebarOverlay: document.getElementById("sidebar-overlay") as HTMLElement,
+
+  modalOverlay: document.getElementById("modal-overlay") as HTMLElement,
+  modalTitle: document.getElementById("modal-title") as HTMLElement,
+  modalMessage: document.getElementById("modal-message") as HTMLElement,
+  btnModalConfirm: document.getElementById(
+    "btn-modal-confirm",
+  ) as HTMLButtonElement,
+  btnModalCancel: document.getElementById(
+    "btn-modal-cancel",
+  ) as HTMLButtonElement,
 };
+
+// ============ Modal Helper ============
+
+/**
+ * Show a custom confirmation modal
+ */
+function showModal(
+  title: string,
+  message: string,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    elements.modalTitle.textContent = title;
+    elements.modalMessage.textContent = message;
+    elements.btnModalConfirm.textContent = confirmText;
+    elements.btnModalCancel.textContent = cancelText;
+
+    // Clone buttons to ensure clean event listeners
+    const newConfirm = elements.btnModalConfirm.cloneNode(true);
+    const newCancel = elements.btnModalCancel.cloneNode(true);
+    elements.btnModalConfirm.parentNode?.replaceChild(
+      newConfirm,
+      elements.btnModalConfirm,
+    );
+    elements.btnModalCancel.parentNode?.replaceChild(
+      newCancel,
+      elements.btnModalCancel,
+    );
+
+    // Update references
+    elements.btnModalConfirm = newConfirm as HTMLButtonElement;
+    elements.btnModalCancel = newCancel as HTMLButtonElement;
+
+    elements.btnModalConfirm.addEventListener("click", () => {
+      elements.modalOverlay.classList.remove("active");
+      resolve(true);
+    });
+
+    elements.btnModalCancel.addEventListener("click", () => {
+      elements.modalOverlay.classList.remove("active");
+      resolve(false);
+    });
+
+    elements.modalOverlay.classList.add("active");
+  });
+}
 
 // ============ UI Helpers ============
 
@@ -272,9 +331,11 @@ async function handleUnsavedChanges(): Promise<"proceed" | "cancel"> {
   if (!state.isDirty) return "proceed";
 
   // First prompt: offer to save
-  const wantToSave = window.confirm(
-    "You have unsaved changes.\n\n" +
-      "Click OK to save before continuing, or Cancel to choose another option.",
+  const wantToSave = await showModal(
+    "Unsaved Changes",
+    "Do you want to save your changes before leaving?",
+    "Save",
+    "Don't Save",
   );
 
   if (wantToSave) {
@@ -284,14 +345,22 @@ async function handleUnsavedChanges(): Promise<"proceed" | "cancel"> {
       return "proceed";
     }
     // Save failed - inform user
-    const discardAnyway = window.confirm(
-      "Save failed. Discard your changes and continue anyway?",
+    const discardAnyway = await showModal(
+      "Save Failed",
+      "Save failed. Discard changes and continue?",
+      "Discard",
+      "Keep Editing",
     );
     return discardAnyway ? "proceed" : "cancel";
   }
 
   // User didn't want to save - ask about discarding
-  const discardChanges = window.confirm("Discard your unsaved changes?");
+  const discardChanges = await showModal(
+    "Discard Check",
+    "Are you sure you want to discard your changes?",
+    "Discard",
+    "Cancel",
+  );
   return discardChanges ? "proceed" : "cancel";
 }
 
@@ -319,8 +388,35 @@ function renderDocumentList(documents: DocumentSummary[]): void {
   }
 
   elements.documentList.innerHTML = documents
-    .map(
-      (doc) => `
+    .map((doc) => {
+      const isConfirming = state.confirmDeleteId === doc.id;
+
+      const deleteActions = isConfirming
+        ? `
+          <div class="doc-actions">
+            <button class="btn-icon-only text-success btn-confirm-delete" data-id="${doc.id}" title="Confirm Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+            <button class="btn-icon-only text-danger btn-cancel-delete" title="Cancel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        `
+        : `
+          <button class="doc-item-delete" data-id="${doc.id}" title="Delete document">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        `;
+
+      return `
     <div class="doc-item-wrapper">
       <button 
         class="doc-item ${doc.id === state.currentDocId ? "active" : ""}" 
@@ -330,19 +426,10 @@ function renderDocumentList(documents: DocumentSummary[]): void {
         <span class="doc-item-title">${escapeHtml(doc.title)}</span>
         <span class="doc-item-date">${formatDate(doc.updatedAt)}</span>
       </button>
-      <button 
-        class="doc-item-delete" 
-        data-id="${doc.id}"
-        title="Delete document"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
+      ${deleteActions}
     </div>
-  `,
-    )
+  `;
+    })
     .join("");
 
   // Add click handlers for document selection
@@ -360,14 +447,39 @@ function renderDocumentList(documents: DocumentSummary[]): void {
     });
   });
 
-  // Add click handlers for delete buttons
+  // Add click handlers for delete buttons (initial click)
   elements.documentList.querySelectorAll(".doc-item-delete").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = (btn as HTMLElement).dataset.id;
-      if (id) deleteDocument(id);
+      if (id) {
+        state.confirmDeleteId = id;
+        loadDocuments(); // Re-render to show confirm icons
+      }
     });
   });
+
+  // Add click handlers for CONFIRM delete
+  elements.documentList
+    .querySelectorAll(".btn-confirm-delete")
+    .forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).dataset.id;
+        if (id) deleteDocument(id);
+      });
+    });
+
+  // Add click handlers for CANCEL delete
+  elements.documentList
+    .querySelectorAll(".btn-cancel-delete")
+    .forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.confirmDeleteId = null;
+        loadDocuments(); // Re-render to show trash icon
+      });
+    });
 }
 
 function renderTemplateList(templates: Template[]): void {
@@ -615,8 +727,11 @@ async function saveDocument(isAutoSave = false, retryCount = 0): Promise<void> {
 
   // Validation: Warn when saving an existing document that is empty (SE-001)
   if (!isAutoSave && state.currentDocId && isContentEmpty) {
-    const confirmSave = window.confirm(
-      "This document is empty. Are you sure you want to save it?",
+    const confirmSave = await showModal(
+      "Empty Document",
+      "This document is empty. Save anyway?",
+      "Save",
+      "Cancel",
     );
     if (!confirmSave) {
       state.isSaving = false;
@@ -654,7 +769,8 @@ async function saveDocument(isAutoSave = false, retryCount = 0): Promise<void> {
 
     if (error instanceof ApiError && error.code === "LOCKED") {
       updateStatus(`🔒 ${error.message}`, "error");
-      alert(`Cannot save: ${error.message}`);
+      // Use helper if critical, or just rely on status bar for lock errors
+      // alert(`Cannot save: ${error.message}`);
       return;
     }
     // Auto-save retry logic (AS-002)
@@ -708,10 +824,8 @@ async function createNewDocument(): Promise<void> {
 }
 
 async function deleteDocument(id: string): Promise<void> {
-  const confirmDelete = window.confirm(
-    "Are you sure you want to delete this document?",
-  );
-  if (!confirmDelete) return;
+  // Logic mostly removed since UI handles confirmation now.
+  // We assume if this function is called, the user has CONFIRMED via the UI checkmark.
 
   setLoading(true);
   updateStatus("Deleting...", "saving");
@@ -742,7 +856,17 @@ async function deleteDocument(id: string): Promise<void> {
 
 async function deleteCurrentDocument(): Promise<void> {
   if (!state.currentDocId) return;
-  await deleteDocument(state.currentDocId);
+  // For main toolbar, we still need a modal confirmation
+  const confirm = await showModal(
+    "Delete Document",
+    "Are you sure you want to delete this document?",
+    "Delete",
+    "Cancel",
+  );
+  if (confirm) {
+    await deleteDocument(state.currentDocId);
+    state.confirmDeleteId = null; // Clear any side state
+  }
 }
 
 // ============ PDF Export ============

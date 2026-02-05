@@ -44908,7 +44908,8 @@ var state = {
   editor: null,
   voiceInput: null,
   autoSaveTimer: null,
-  heartbeatTimer: null
+  heartbeatTimer: null,
+  confirmDeleteId: null
 };
 var elements2 = {
   docTitle: document.getElementById("doc-title"),
@@ -44930,8 +44931,36 @@ var elements2 = {
   fontSize: document.getElementById("font-size"),
   btnMenu: document.getElementById("btn-menu"),
   sidebar: document.getElementById("sidebar"),
-  sidebarOverlay: document.getElementById("sidebar-overlay")
+  sidebarOverlay: document.getElementById("sidebar-overlay"),
+  modalOverlay: document.getElementById("modal-overlay"),
+  modalTitle: document.getElementById("modal-title"),
+  modalMessage: document.getElementById("modal-message"),
+  btnModalConfirm: document.getElementById("btn-modal-confirm"),
+  btnModalCancel: document.getElementById("btn-modal-cancel")
 };
+function showModal(title, message, confirmText = "Confirm", cancelText = "Cancel") {
+  return new Promise((resolve) => {
+    elements2.modalTitle.textContent = title;
+    elements2.modalMessage.textContent = message;
+    elements2.btnModalConfirm.textContent = confirmText;
+    elements2.btnModalCancel.textContent = cancelText;
+    const newConfirm = elements2.btnModalConfirm.cloneNode(true);
+    const newCancel = elements2.btnModalCancel.cloneNode(true);
+    elements2.btnModalConfirm.parentNode?.replaceChild(newConfirm, elements2.btnModalConfirm);
+    elements2.btnModalCancel.parentNode?.replaceChild(newCancel, elements2.btnModalCancel);
+    elements2.btnModalConfirm = newConfirm;
+    elements2.btnModalCancel = newCancel;
+    elements2.btnModalConfirm.addEventListener("click", () => {
+      elements2.modalOverlay.classList.remove("active");
+      resolve(true);
+    });
+    elements2.btnModalCancel.addEventListener("click", () => {
+      elements2.modalOverlay.classList.remove("active");
+      resolve(false);
+    });
+    elements2.modalOverlay.classList.add("active");
+  });
+}
 function updateStatus(text, type = "default") {
   elements2.statusText.textContent = text;
   elements2.saveStatus.textContent = text;
@@ -45072,18 +45101,16 @@ function isValidTipTapContent(content) {
 async function handleUnsavedChanges() {
   if (!state.isDirty)
     return "proceed";
-  const wantToSave = window.confirm(`You have unsaved changes.
-
-` + "Click OK to save before continuing, or Cancel to choose another option.");
+  const wantToSave = await showModal("Unsaved Changes", "Do you want to save your changes before leaving?", "Save", "Don't Save");
   if (wantToSave) {
     await saveDocument(false);
     if (!state.isDirty) {
       return "proceed";
     }
-    const discardAnyway = window.confirm("Save failed. Discard your changes and continue anyway?");
+    const discardAnyway = await showModal("Save Failed", "Save failed. Discard changes and continue?", "Discard", "Keep Editing");
     return discardAnyway ? "proceed" : "cancel";
   }
-  const discardChanges = window.confirm("Discard your unsaved changes?");
+  const discardChanges = await showModal("Discard Check", "Are you sure you want to discard your changes?", "Discard", "Cancel");
   return discardChanges ? "proceed" : "cancel";
 }
 function setLoading(loading) {
@@ -45105,7 +45132,31 @@ function renderDocumentList(documents) {
     `;
     return;
   }
-  elements2.documentList.innerHTML = documents.map((doc3) => `
+  elements2.documentList.innerHTML = documents.map((doc3) => {
+    const isConfirming = state.confirmDeleteId === doc3.id;
+    const deleteActions = isConfirming ? `
+          <div class="doc-actions">
+            <button class="btn-icon-only text-success btn-confirm-delete" data-id="${doc3.id}" title="Confirm Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+            <button class="btn-icon-only text-danger btn-cancel-delete" title="Cancel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        ` : `
+          <button class="doc-item-delete" data-id="${doc3.id}" title="Delete document">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        `;
+    return `
     <div class="doc-item-wrapper">
       <button 
         class="doc-item ${doc3.id === state.currentDocId ? "active" : ""}" 
@@ -45115,18 +45166,10 @@ function renderDocumentList(documents) {
         <span class="doc-item-title">${escapeHtml(doc3.title)}</span>
         <span class="doc-item-date">${formatDate(doc3.updatedAt)}</span>
       </button>
-      <button 
-        class="doc-item-delete" 
-        data-id="${doc3.id}"
-        title="Delete document"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
+      ${deleteActions}
     </div>
-  `).join("");
+  `;
+  }).join("");
   elements2.documentList.querySelectorAll(".doc-item").forEach((btn) => {
     btn.addEventListener("click", (e2) => {
       e2.stopPropagation();
@@ -45143,8 +45186,25 @@ function renderDocumentList(documents) {
     btn.addEventListener("click", (e2) => {
       e2.stopPropagation();
       const id = btn.dataset.id;
+      if (id) {
+        state.confirmDeleteId = id;
+        loadDocuments();
+      }
+    });
+  });
+  elements2.documentList.querySelectorAll(".btn-confirm-delete").forEach((btn) => {
+    btn.addEventListener("click", (e2) => {
+      e2.stopPropagation();
+      const id = btn.dataset.id;
       if (id)
         deleteDocument(id);
+    });
+  });
+  elements2.documentList.querySelectorAll(".btn-cancel-delete").forEach((btn) => {
+    btn.addEventListener("click", (e2) => {
+      e2.stopPropagation();
+      state.confirmDeleteId = null;
+      loadDocuments();
     });
   });
 }
@@ -45321,7 +45381,7 @@ async function saveDocument(isAutoSave = false, retryCount = 0) {
     return;
   }
   if (!isAutoSave && state.currentDocId && isContentEmpty) {
-    const confirmSave = window.confirm("This document is empty. Are you sure you want to save it?");
+    const confirmSave = await showModal("Empty Document", "This document is empty. Save anyway?", "Save", "Cancel");
     if (!confirmSave) {
       state.isSaving = false;
       setLoading(false);
@@ -45354,7 +45414,6 @@ async function saveDocument(isAutoSave = false, retryCount = 0) {
     console.error("Save error:", error);
     if (error instanceof ApiError && error.code === "LOCKED") {
       updateStatus(`\uD83D\uDD12 ${error.message}`, "error");
-      alert(`Cannot save: ${error.message}`);
       return;
     }
     if (isAutoSave && retryCount < 2) {
@@ -45395,9 +45454,6 @@ async function createNewDocument() {
   state.editor?.focus();
 }
 async function deleteDocument(id) {
-  const confirmDelete = window.confirm("Are you sure you want to delete this document?");
-  if (!confirmDelete)
-    return;
   setLoading(true);
   updateStatus("Deleting...", "saving");
   try {
@@ -45425,7 +45481,11 @@ async function deleteDocument(id) {
 async function deleteCurrentDocument() {
   if (!state.currentDocId)
     return;
-  await deleteDocument(state.currentDocId);
+  const confirm = await showModal("Delete Document", "Are you sure you want to delete this document?", "Delete", "Cancel");
+  if (confirm) {
+    await deleteDocument(state.currentDocId);
+    state.confirmDeleteId = null;
+  }
 }
 var PAGE_SIZES = {
   a4: { width: 210, height: 297 },
