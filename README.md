@@ -6,6 +6,8 @@ Offline document editor that runs on a local network. No cloud, no internet, no 
 
 A browser-based document editor (like Google Docs) that runs entirely on your own server. Built for offices that can't use cloud tools due to security policies.
 
+![Smart Office UI](docs/office.jpeg)
+
 ## Quick Start
 
 ```bash
@@ -47,15 +49,15 @@ docs/           # Design documentation
 
 ## API
 
-| Method | Endpoint | What it does |
-|--------|----------|--------------|
-| GET | /api/documents | List all documents |
-| POST | /api/documents | Create document |
-| GET | /api/documents/:id | Get one document |
-| PUT | /api/documents/:id | Update document |
-| DELETE | /api/documents/:id | Delete document |
-| GET | /api/templates | List templates |
-| GET | /api/templates/:id | Get template |
+| Method | Endpoint           | What it does       |
+| ------ | ------------------ | ------------------ |
+| GET    | /api/documents     | List all documents |
+| POST   | /api/documents     | Create document    |
+| GET    | /api/documents/:id | Get one document   |
+| PUT    | /api/documents/:id | Update document    |
+| DELETE | /api/documents/:id | Delete document    |
+| GET    | /api/templates     | List templates     |
+| GET    | /api/templates/:id | Get template       |
 
 ## Tech Stack
 
@@ -85,13 +87,12 @@ If I had more time:
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [DESIGN_NOTES.md](./DESIGN_NOTES.md) | Main design document - technology choices, trade-offs, production considerations |
-| [PROBLEM_STATEMENT.md](./PROBLEM_STATEMENT.md) | Original requirements and evaluation criteria |
-| [docs/01-design-and-approach.md](./docs/01-design-and-approach.md) | Detailed system architecture and component design |
-| [docs/02-poc-software-design.md](./docs/02-poc-software-design.md) | POC implementation plan and code patterns |
-
+| Document                                                           | Description                                                                      |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| [DESIGN_NOTES.md](./DESIGN_NOTES.md)                               | Main design document - technology choices, trade-offs, production considerations |
+| [PROBLEM_STATEMENT.md](./PROBLEM_STATEMENT.md)                     | Original requirements and evaluation criteria                                    |
+| [docs/01-design-and-approach.md](./docs/01-design-and-approach.md) | Detailed system architecture and component design                                |
+| [docs/02-poc-software-design.md](./docs/02-poc-software-design.md) | POC implementation plan and code patterns                                        |
 
 ## Running in Production
 
@@ -100,6 +101,7 @@ bun run start
 ```
 
 For multi-device access, other machines on the network can use:
+
 ```
 http://<your-ip>:3000
 ```
