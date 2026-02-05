@@ -65,6 +65,37 @@ function getLocalIP(): string {
   return "0.0.0.0";
 }
 
+// -------------------------------------------------------------------------
+// PREVENT SLEEP (Render.com Free Tier)
+// Render spins down after 15 mins of inactivity. We ping ourselves every 14m.
+// -------------------------------------------------------------------------
+if (process.env.RENDER_EXTERNAL_URL) {
+  const pingUrl = `${process.env.RENDER_EXTERNAL_URL}/api/health`;
+  const intervalMs = 14 * 60 * 1000; // 14 minutes
+
+  console.log(
+    `⏰ Keep-Alive service started. Pinging ${pingUrl} every 14 mins.`,
+  );
+
+  setInterval(async () => {
+    try {
+      const res = await fetch(pingUrl);
+      if (res.ok) {
+        console.log(`[${new Date().toISOString()}] 💓 Keep-Alive Ping Success`);
+      } else {
+        console.warn(
+          `[${new Date().toISOString()}] ⚠️ Keep-Alive Ping returned ${res.status}`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[${new Date().toISOString()}] ❌ Keep-Alive Ping Failed:`,
+        err,
+      );
+    }
+  }, intervalMs);
+}
+
 // Export for Bun
 export default {
   port,
