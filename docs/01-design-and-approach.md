@@ -498,7 +498,7 @@ graph TB
 
     A --> A1[Where: Browser]
     A --> A2[Speed: Fast]
-    A --> A3[Quality: Basic (Drafts)]
+    A --> A3["Quality: Basic (Drafts)"]
     A --> A4[Risk: Font Inconsistency]
 
     B --> B1[Where: Server]
@@ -793,11 +793,11 @@ stateDiagram-v2
     Draft --> UnderReview : Submit
     Draft --> Draft : Edit
 
-    UnderReview --> Approved : Approver: Approve
-    UnderReview --> Rejected : Approver: Reject
-    UnderReview --> ChangesRequested : Approver: Request Changes
+    UnderReview --> Approved : "Approver: Approve"
+    UnderReview --> Rejected : "Approver: Reject"
+    UnderReview --> ChangesRequested : "Approver: Request Changes"
 
-    ChangesRequested --> Draft : Author: Revise
+    ChangesRequested --> Draft : "Author: Revise"
 
     Rejected --> Draft : Author: Revise
     Rejected --> [*] : Author: Abandon
